@@ -3,6 +3,7 @@ use noise::{NoiseFn, Perlin};
 
 mod chunk;
 mod config;
+mod inventory;
 mod player;
 mod systems;
 mod voxel;
@@ -10,6 +11,7 @@ mod world;
 
 use chunk::*;
 use config::*;
+use inventory::*;
 use player::*;
 use systems::*;
 use voxel::{Material as VoxelMaterial, MaterialRegistry};
@@ -41,6 +43,7 @@ fn main() {
                 setup_player,
                 setup_crosshair,
                 setup_voxel_tint_overlay,
+                setup_inventory,
             )
                 .chain(),
         )
@@ -55,6 +58,8 @@ fn main() {
                 voxel_interaction_system,
                 voxel_tint_system,
                 update_voxel_tint_overlay,
+                handle_inventory_navigation,
+                update_inventory_ui,
             ),
         )
         .run();
@@ -182,6 +187,14 @@ fn setup_rendering_config(mut commands: Commands) {
     config.use_basic_normals = true;
 
     commands.insert_resource(config);
+}
+
+fn setup_inventory(mut commands: Commands) {
+    let mut inventory = Inventory::new(4, 8); // 4 rows, 8 columns
+    inventory.initialize_with_test_content();
+    
+    setup_inventory_ui(&mut commands, &inventory);
+    commands.insert_resource(inventory);
 }
 
 fn world_generation_system(mut world: ResMut<VoxelWorld>) {
