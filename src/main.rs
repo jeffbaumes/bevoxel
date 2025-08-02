@@ -6,6 +6,7 @@ mod config;
 mod inventory;
 mod player;
 mod systems;
+mod ui;
 mod voxel;
 mod world;
 
@@ -14,6 +15,7 @@ use config::*;
 use inventory::*;
 use player::*;
 use systems::*;
+use ui::*;
 use voxel::{Material as VoxelMaterial, MaterialRegistry};
 use world::*;
 
@@ -76,43 +78,6 @@ fn setup_world(mut commands: Commands) {
     ));
 }
 
-fn setup_crosshair(mut commands: Commands) {
-    // Create a UI root node
-    commands
-        .spawn((
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            GlobalZIndex(1000), // Ensure it's on top
-        ))
-        .with_children(|parent| {
-            // Horizontal line
-            parent.spawn((
-                Node {
-                    width: Val::Px(20.0),
-                    height: Val::Px(2.0),
-                    position_type: PositionType::Absolute,
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.8)),
-            ));
-
-            // Vertical line
-            parent.spawn((
-                Node {
-                    width: Val::Px(2.0),
-                    height: Val::Px(20.0),
-                    position_type: PositionType::Absolute,
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.8)),
-            ));
-        });
-}
 
 fn setup_material_registry(mut commands: Commands) {
     let mut registry = MaterialRegistry::new();
