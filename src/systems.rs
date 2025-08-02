@@ -1081,11 +1081,21 @@ fn add_voxel_faces(
             ) {
                 let back_base_index = vertices.len() as u32;
                 
-                // Add the same vertices again but with flipped normal and neighbor color
+                // Add the same vertices again but with appropriate back-face normal
                 for vertex in face_vertices {
                     let vertex_pos = Vec3::new(pos.x + vertex[0], pos.y + vertex[1], pos.z + vertex[2]);
                     vertices.push([vertex_pos.x, vertex_pos.y, vertex_pos.z]);
-                    normals.push([-face_normal.x, -face_normal.y, -face_normal.z]);
+                    
+                    // For transparent-air boundaries on horizontal faces, always use Y-up normal
+                    // to match the transparent-to-transparent behavior
+                    let back_face_normal = if has_transparent_air_boundary && 
+                        (normal == Vec3::Y || normal == Vec3::NEG_Y) {
+                        Vec3::Y
+                    } else {
+                        -face_normal
+                    };
+                    
+                    normals.push([back_face_normal.x, back_face_normal.y, back_face_normal.z]);
                 }
                 
                 // Use appropriate color for back faces
@@ -1288,11 +1298,21 @@ fn add_voxel_faces_with_offset(
             ) {
                 let back_base_index = vertices.len() as u32;
                 
-                // Add the same vertices again but with flipped normal and appropriate color
+                // Add the same vertices again but with appropriate back-face normal
                 for vertex in face_vertices {
                     let vertex_pos_final = Vec3::new(vertex_pos.x + vertex[0], vertex_pos.y + vertex[1], vertex_pos.z + vertex[2]);
                     vertices.push([vertex_pos_final.x, vertex_pos_final.y, vertex_pos_final.z]);
-                    normals.push([-face_normal.x, -face_normal.y, -face_normal.z]);
+                    
+                    // For transparent-air boundaries on horizontal faces, always use Y-up normal
+                    // to match the transparent-to-transparent behavior
+                    let back_face_normal = if has_transparent_air_boundary && 
+                        (normal == Vec3::Y || normal == Vec3::NEG_Y) {
+                        Vec3::Y
+                    } else {
+                        -face_normal
+                    };
+                    
+                    normals.push([back_face_normal.x, back_face_normal.y, back_face_normal.z]);
                 }
                 
                 // Use appropriate color for back faces
