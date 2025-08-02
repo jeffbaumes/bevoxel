@@ -97,3 +97,6 @@ The game runs four main systems in Update schedule:
 - Chunk serialization is implemented with serde
 - Disk I/O stubs exist in `world.rs:144-149` but are not implemented
 - Modified chunks are marked for saving in `ChunkData.modified`
+
+### Build Recommendations
+- To test that it builds properly, always use `cargo build --release`. The user will actually run the program to test it.

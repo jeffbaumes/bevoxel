@@ -313,6 +313,8 @@ dependencies = [
  "bevy",
  "bincode",
  "noise",
+ "rand",
+ "rand_distr",
  "rayon",
  "serde",
 ]

@@ -5,6 +5,8 @@ use crate::world::{VoxelWorld, VoxelEditingConfig, BrushShape, PlayerPhysicsConf
 use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
 use bevy::window::CursorGrabMode;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 fn is_voxel_solid_at_pos(world: &VoxelWorld, pos: Vec3, material_registry: &MaterialRegistry) -> bool {
     let voxel = world.get_voxel_at_world_pos(pos);
@@ -756,7 +758,25 @@ fn add_voxel_faces(
 ) {
     let material_name = chunk.get_material_name(voxel.material_id).map(|s| s.as_str()).unwrap_or("unknown");
     let material = material_registry.get(material_name);
-    let color_array = material.color;
+    
+    // Create a deterministic seed based on world position for consistent color variation
+    let world_pos = chunk.coord.to_world_pos() + pos;
+    let x = world_pos.x as i32 as u32;
+    let y = world_pos.y as i32 as u32;
+    let z = world_pos.z as i32 as u32;
+    
+    // Use a proper 3D hash function that ensures good distribution across all dimensions
+    let mut seed = x as u64;
+    seed = seed.wrapping_mul(0x9e3779b97f4a7c15_u64); // Golden ratio hash
+    seed ^= (y as u64) << 16;
+    seed = seed.wrapping_mul(0x9e3779b97f4a7c15_u64);
+    seed ^= (z as u64) << 32;
+    seed = seed.wrapping_mul(0xc6a4a7935bd1e995_u64); // Additional mixing
+    seed ^= seed >> 32;
+    
+    let mut rng = StdRng::seed_from_u64(seed);
+    let varied_color = material.get_varied_color(&mut rng);
+    let color_array = [varied_color.to_srgba().red, varied_color.to_srgba().green, varied_color.to_srgba().blue, varied_color.to_srgba().alpha];
 
     let faces = [
         // +X face

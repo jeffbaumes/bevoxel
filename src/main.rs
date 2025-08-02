@@ -105,15 +105,15 @@ fn setup_crosshair(mut commands: Commands) {
 fn setup_material_registry(mut commands: Commands) {
     let mut registry = MaterialRegistry::new();
 
-    // Register basic materials
+    // Register basic materials with color variation
     registry.register(VoxelMaterial::new("air", [0.0, 0.0, 0.0, 0.0], false));
-    registry.register(VoxelMaterial::new("stone", [0.5, 0.5, 0.5, 1.0], true));
-    registry.register(VoxelMaterial::new("dirt", [0.4, 0.2, 0.1, 1.0], true));
-    registry.register(VoxelMaterial::new("grass", [0.2, 0.7, 0.2, 1.0], true));
+    registry.register(VoxelMaterial::with_variance("stone", [0.5, 0.5, 0.5, 1.0], true, 0.08));
+    registry.register(VoxelMaterial::with_variance("dirt", [0.4, 0.2, 0.1, 1.0], true, 0.06));
+    registry.register(VoxelMaterial::with_variance("grass", [0.2, 0.7, 0.2, 1.0], true, 0.1));
     registry.register(VoxelMaterial::new("water", [0.2, 0.4, 0.8, 0.7], false));
-    registry.register(VoxelMaterial::new("sand", [0.9, 0.8, 0.6, 1.0], true));
-    registry.register(VoxelMaterial::new("wood", [0.6, 0.4, 0.2, 1.0], true));
-    registry.register(VoxelMaterial::new("leaves", [0.1, 0.6, 0.1, 1.0], true));
+    registry.register(VoxelMaterial::with_variance("sand", [0.9, 0.8, 0.6, 1.0], true, 0.05));
+    registry.register(VoxelMaterial::with_variance("wood", [0.6, 0.4, 0.2, 1.0], true, 0.07));
+    registry.register(VoxelMaterial::with_variance("leaves", [0.1, 0.6, 0.1, 1.0], true, 0.12));
 
     commands.insert_resource(registry);
 }
