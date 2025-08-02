@@ -31,6 +31,7 @@ fn main() {
         .init_resource::<PlayerPhysicsConfig>()
         .init_resource::<RenderingConfig>()
         .init_resource::<GameConfig>()
+        .init_resource::<VoxelTintState>()
         .add_systems(
             Startup,
             (
@@ -39,6 +40,7 @@ fn main() {
                 setup_world,
                 setup_player,
                 setup_crosshair,
+                setup_voxel_tint_overlay,
             )
                 .chain(),
         )
@@ -51,6 +53,8 @@ fn main() {
                 chunk_loading_system,
                 chunk_meshing_system,
                 voxel_interaction_system,
+                voxel_tint_system,
+                update_voxel_tint_overlay,
             ),
         )
         .run();
@@ -131,7 +135,7 @@ fn setup_material_registry(mut commands: Commands) {
     registry.register(VoxelMaterial::new("water", [0.2, 0.4, 0.8, 0.7], false));
     registry.register(VoxelMaterial::new(
         "murky_water",
-        [0.3, 0.5, 0.4, 0.5],
+        [0.3, 0.5, 0.4, 0.8],
         false,
     ));
     registry.register(VoxelMaterial::new("glass", [0.9, 0.9, 0.9, 0.3], true));
@@ -228,7 +232,7 @@ fn generate_terrain(chunk: &mut ChunkData) {
                 } else if world_y == height && height >= 45 {
                     "grass"
                 } else if world_y == height && height < 45 {
-                    "sand" // Sand at water level
+                    "grass" // Sand at water level
                 } else if world_y > height - 4 {
                     "dirt"
                 } else {

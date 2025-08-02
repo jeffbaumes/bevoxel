@@ -52,7 +52,7 @@ A high-performance voxel engine built with Rust and Bevy, designed for infinite 
 
 ### Movement
 - **Mouse**: Look around
-- **WASD**: Move horizontally  
+- **WASD**: Move horizontally
 - **Space**: Jump
 - **Escape**: Release mouse cursor
 
@@ -112,7 +112,7 @@ The engine provides a solid foundation for:
 
 Bevoxel was designed with these principles:
 - **Performance**: GPU-accelerated operations where possible
-- **Scalability**: Infinite worlds with efficient memory usage  
+- **Scalability**: Infinite worlds with efficient memory usage
 - **Modularity**: Clean separation of concerns with Bevy's ECS
 - **Extensibility**: Easy to add new voxel types and behaviors
 - **Modern Rust**: Memory safety without garbage collection overhead
