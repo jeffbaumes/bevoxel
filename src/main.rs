@@ -68,11 +68,11 @@ fn main() {
 fn setup_world(mut commands: Commands) {
     commands.spawn((
         DirectionalLight {
-            illuminance: 10000.0,
+            illuminance: 1000.0,
             shadows_enabled: false,
             ..default()
         },
-        Transform::from_xyz(1.0, 1.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(3.0, 1.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
 
@@ -137,7 +137,13 @@ fn setup_material_registry(mut commands: Commands) {
         true,
         0.1,
     ));
-    registry.register(VoxelMaterial::with_buoyancy("water", [0.2, 0.4, 0.8, 0.7], false, 0.3, 0.6));
+    registry.register(VoxelMaterial::with_buoyancy(
+        "water",
+        [0.2, 0.4, 0.8, 0.7],
+        false,
+        0.3,
+        0.6,
+    ));
     registry.register(VoxelMaterial::with_buoyancy(
         "murky_water",
         [0.3, 0.5, 0.4, 0.8],
@@ -192,7 +198,7 @@ fn setup_rendering_config(mut commands: Commands) {
 fn setup_inventory(mut commands: Commands) {
     let mut inventory = Inventory::new(4, 8); // 4 rows, 8 columns
     inventory.initialize_with_test_content();
-    
+
     setup_inventory_ui(&mut commands, &inventory);
     commands.insert_resource(inventory);
 }

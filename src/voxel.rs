@@ -4,6 +4,67 @@ use serde::{Deserialize, Serialize};
 use rand::prelude::*;
 use rand_distr::{Distribution, Normal};
 
+fn rgb_to_hsl(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    
+    // Lightness
+    let l = (max + min) / 2.0;
+    
+    if delta == 0.0 {
+        // Achromatic (gray)
+        return (0.0, 0.0, l);
+    }
+    
+    // Saturation
+    let s = if l < 0.5 {
+        delta / (max + min)
+    } else {
+        delta / (2.0 - max - min)
+    };
+    
+    // Hue
+    let h = if max == r {
+        ((g - b) / delta + if g < b { 6.0 } else { 0.0 }) / 6.0
+    } else if max == g {
+        ((b - r) / delta + 2.0) / 6.0
+    } else {
+        ((r - g) / delta + 4.0) / 6.0
+    };
+    
+    (h, s, l)
+}
+
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
+    if s == 0.0 {
+        // Achromatic (gray)
+        return (l, l, l);
+    }
+    
+    let hue_to_rgb = |p: f32, q: f32, mut t: f32| -> f32 {
+        if t < 0.0 { t += 1.0; }
+        if t > 1.0 { t -= 1.0; }
+        if t < 1.0/6.0 { return p + (q - p) * 6.0 * t; }
+        if t < 1.0/2.0 { return q; }
+        if t < 2.0/3.0 { return p + (q - p) * (2.0/3.0 - t) * 6.0; }
+        p
+    };
+    
+    let q = if l < 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
+    let p = 2.0 * l - q;
+    
+    let r = hue_to_rgb(p, q, h + 1.0/3.0);
+    let g = hue_to_rgb(p, q, h);
+    let b = hue_to_rgb(p, q, h - 1.0/3.0);
+    
+    (r, g, b)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Material {
     pub name: String,
@@ -59,14 +120,17 @@ impl Material {
         
         let normal = Normal::new(0.0, self.color_variance).unwrap();
         
-        let mut varied_color = [0.0; 4];
-        for i in 0..3 { // Only vary RGB, not alpha
-            let variation = normal.sample(rng);
-            varied_color[i] = (self.color[i] + variation).clamp(0.0, 1.0);
-        }
-        varied_color[3] = self.color[3]; // Keep original alpha
+        // Convert RGB to HSL
+        let (h, s, l) = rgb_to_hsl(self.color[0], self.color[1], self.color[2]);
         
-        Color::srgba(varied_color[0], varied_color[1], varied_color[2], varied_color[3])
+        // Vary only the lightness component
+        let variation = normal.sample(rng);
+        let varied_l = (l + variation).clamp(0.0, 1.0);
+        
+        // Convert back to RGB
+        let (r, g, b) = hsl_to_rgb(h, s, varied_l);
+        
+        Color::srgba(r, g, b, self.color[3])
     }
     
     pub fn is_solid(&self) -> bool {
