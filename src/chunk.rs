@@ -242,4 +242,14 @@ impl ChunkMesh {
     }
 }
 
+#[derive(Component)]
+pub struct OpaqueMesh {
+    pub coord: ChunkCoord,
+}
+
+#[derive(Component)]
+pub struct TransparentMesh {
+    pub coord: ChunkCoord,
+}
+
 pub type ChunkMap = AHashMap<ChunkCoord, ChunkData>;

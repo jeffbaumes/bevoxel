@@ -110,13 +110,49 @@ fn setup_material_registry(mut commands: Commands) {
 
     // Register basic materials with color variation
     registry.register(VoxelMaterial::new("air", [0.0, 0.0, 0.0, 0.0], false));
-    registry.register(VoxelMaterial::with_variance("stone", [0.5, 0.5, 0.5, 1.0], true, 0.08));
-    registry.register(VoxelMaterial::with_variance("dirt", [0.4, 0.2, 0.1, 1.0], true, 0.06));
-    registry.register(VoxelMaterial::with_variance("grass", [0.2, 0.7, 0.2, 1.0], true, 0.1));
+    registry.register(VoxelMaterial::with_variance(
+        "stone",
+        [0.5, 0.5, 0.5, 1.0],
+        true,
+        0.08,
+    ));
+    registry.register(VoxelMaterial::with_variance(
+        "dirt",
+        [0.4, 0.2, 0.1, 1.0],
+        true,
+        0.06,
+    ));
+    registry.register(VoxelMaterial::with_variance(
+        "grass",
+        [0.2, 0.7, 0.2, 1.0],
+        true,
+        0.1,
+    ));
     registry.register(VoxelMaterial::new("water", [0.2, 0.4, 0.8, 0.7], false));
-    registry.register(VoxelMaterial::with_variance("sand", [0.9, 0.8, 0.6, 1.0], true, 0.05));
-    registry.register(VoxelMaterial::with_variance("wood", [0.6, 0.4, 0.2, 1.0], true, 0.07));
-    registry.register(VoxelMaterial::with_variance("leaves", [0.1, 0.6, 0.1, 1.0], true, 0.12));
+    registry.register(VoxelMaterial::new(
+        "murky_water",
+        [0.3, 0.5, 0.4, 0.5],
+        false,
+    ));
+    registry.register(VoxelMaterial::new("glass", [0.9, 0.9, 0.9, 0.3], true));
+    registry.register(VoxelMaterial::with_variance(
+        "sand",
+        [0.9, 0.8, 0.6, 1.0],
+        true,
+        0.05,
+    ));
+    registry.register(VoxelMaterial::with_variance(
+        "wood",
+        [0.6, 0.4, 0.2, 1.0],
+        true,
+        0.07,
+    ));
+    registry.register(VoxelMaterial::with_variance(
+        "leaves",
+        [0.1, 0.6, 0.1, 0.8],
+        true,
+        0.12,
+    ));
 
     commands.insert_resource(registry);
 }
@@ -129,6 +165,15 @@ fn setup_rendering_config(mut commands: Commands) {
     // RADIUS = 2: Higher quality, balanced performance (default)
     // RADIUS = 3: Maximum quality, more expensive
     config.normal_sampling_radius = 3;
+
+    // Configure transparency chunk size for better sorting
+    // Smaller values = more mesh entities but better transparency sorting
+    // 8 = good balance, 4 = more entities/better sorting, 16 = fewer entities/worse sorting
+    config.transparency_chunk_size = 8;
+
+    // Enable basic normals mode (flat face normals)
+    // When enabled, transparent geometry horizontal faces always use Y-up normals
+    config.use_basic_normals = true;
 
     commands.insert_resource(config);
 }
@@ -172,9 +217,18 @@ fn generate_terrain(chunk: &mut ChunkData) {
                 let world_y = chunk_world_pos.y as i32 + y as i32;
 
                 let material_name = if world_y > height {
-                    "air"
-                } else if world_y == height {
+                    // "air"
+                    if world_y < 45 {
+                        "murky_water" // Add water below sea level
+                    } else if world_y < 50 {
+                        "water"
+                    } else {
+                        "air"
+                    }
+                } else if world_y == height && height >= 45 {
                     "grass"
+                } else if world_y == height && height < 45 {
+                    "sand" // Sand at water level
                 } else if world_y > height - 4 {
                     "dirt"
                 } else {

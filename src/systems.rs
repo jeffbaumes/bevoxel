@@ -1,9 +1,10 @@
-use crate::chunk::ChunkMesh;
+use crate::chunk::{ChunkMesh, OpaqueMesh, TransparentMesh};
 use crate::player::{Player, PlayerCamera};
 use crate::voxel::{Voxel, MaterialRegistry};
 use crate::world::{VoxelWorld, VoxelEditingConfig, BrushShape, PlayerPhysicsConfig, CollisionMode, RenderingConfig};
 use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
+use bevy::render::alpha::AlphaMode;
 use bevy::window::CursorGrabMode;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -430,22 +431,31 @@ pub fn chunk_meshing_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut world: ResMut<VoxelWorld>,
-    existing_meshes: Query<(Entity, &ChunkMesh)>,
+    existing_opaque_meshes: Query<(Entity, &OpaqueMesh)>,
+    existing_transparent_meshes: Query<(Entity, &TransparentMesh)>,
     material_registry: Res<MaterialRegistry>,
     rendering_config: Res<RenderingConfig>,
     config: Res<crate::config::GameConfig>,
 ) {
 
-    let mut existing_mesh_map = std::collections::HashMap::new();
-    for (entity, chunk_mesh) in existing_meshes.iter() {
-        existing_mesh_map.insert(chunk_mesh.coord, entity);
+    let mut existing_opaque_map = std::collections::HashMap::new();
+    for (entity, mesh) in existing_opaque_meshes.iter() {
+        existing_opaque_map.insert(mesh.coord, entity);
+    }
+    
+    let mut existing_transparent_map = std::collections::HashMap::new();
+    for (entity, mesh) in existing_transparent_meshes.iter() {
+        existing_transparent_map.insert(mesh.coord, entity);
     }
 
+    let mut meshes_processed = 0;
     for _ in 0..config.max_meshes_per_frame {
         // Try priority queue first (player modifications)
         let coord = if let Some(coord) = world.priority_meshing_queue.pop_front() {
+            meshes_processed += 1;
             coord
         } else if let Some(coord) = world.meshing_queue.pop_front() {
+            meshes_processed += 1;
             coord
         } else {
             break;
@@ -490,13 +500,19 @@ pub fn chunk_meshing_system(
         }
 
         if let Some(chunk) = world.get_chunk(coord) {
-            let mesh = generate_chunk_mesh(chunk, &world, &material_registry, &rendering_config);
+            let opaque_mesh = generate_chunk_mesh(chunk, &world, &material_registry, &rendering_config);
+            let transparent_meshes = generate_transparent_chunk_meshes_by_layer(chunk, &world, &material_registry, &rendering_config);
 
-            if let Some(existing_entity) = existing_mesh_map.get(&coord) {
+            // Despawn existing meshes for this chunk
+            if let Some(existing_entity) = existing_opaque_map.get(&coord) {
+                commands.entity(*existing_entity).despawn();
+            }
+            if let Some(existing_entity) = existing_transparent_map.get(&coord) {
                 commands.entity(*existing_entity).despawn();
             }
 
-            if let Some(mesh) = mesh {
+            // Spawn opaque mesh if it has geometry
+            if let Some(mesh) = opaque_mesh {
                 let mesh_handle = meshes.add(mesh);
                 let material_handle = materials.add(StandardMaterial {
                     base_color: Color::WHITE,
@@ -508,9 +524,35 @@ pub fn chunk_meshing_system(
                     MeshMaterial3d(material_handle),
                     Transform::from_translation(coord.to_world_pos()),
                     ChunkMesh::new(coord),
+                    OpaqueMesh { coord },
+                ));
+            }
+
+            // Spawn separate transparent mesh entities for each layer to allow proper sorting
+            for (layer_offset, mesh) in transparent_meshes {
+                let mesh_handle = meshes.add(mesh);
+                let material_handle = materials.add(StandardMaterial {
+                    base_color: Color::WHITE,
+                    alpha_mode: AlphaMode::Blend,
+                    ..default()
+                });
+
+                // Position each subchunk at its center in world coordinates for better sorting
+                let subchunk_world_center = coord.to_world_pos() + layer_offset;
+                let layer_translation = subchunk_world_center;
+                commands.spawn((
+                    Mesh3d(mesh_handle),
+                    MeshMaterial3d(material_handle),
+                    Transform::from_translation(layer_translation),
+                    ChunkMesh::new(coord),
+                    TransparentMesh { coord },
                 ));
             }
         }
+    }
+    
+    if meshes_processed > 0 {
+        println!("Frame: processed {} chunks for meshing", meshes_processed);
     }
 }
 
@@ -593,6 +635,12 @@ pub fn voxel_interaction_system(
                     "dirt"
                 } else if keyboard.pressed(KeyCode::Digit3) {
                     "grass"
+                } else if keyboard.pressed(KeyCode::Digit4) {
+                    "water"
+                } else if keyboard.pressed(KeyCode::Digit5) {
+                    "glass"
+                } else if keyboard.pressed(KeyCode::Digit6) {
+                    "murky_water"
                 } else {
                     "stone"
                 };
@@ -691,17 +739,129 @@ fn apply_cube_brush_with_material(world: &mut VoxelWorld, center: Vec3, radius: 
 }
 
 fn generate_chunk_mesh(chunk: &crate::chunk::ChunkData, world: &VoxelWorld, material_registry: &MaterialRegistry, rendering_config: &RenderingConfig) -> Option<Mesh> {
+    generate_chunk_mesh_filtered(chunk, world, material_registry, rendering_config, false)
+}
+
+fn generate_transparent_chunk_mesh(chunk: &crate::chunk::ChunkData, world: &VoxelWorld, material_registry: &MaterialRegistry, rendering_config: &RenderingConfig) -> Option<Mesh> {
+    generate_chunk_mesh_filtered(chunk, world, material_registry, rendering_config, true)
+}
+
+fn generate_transparent_chunk_meshes_by_layer(chunk: &crate::chunk::ChunkData, world: &VoxelWorld, material_registry: &MaterialRegistry, rendering_config: &RenderingConfig) -> Vec<(Vec3, Mesh)> {
+    let mut subchunk_meshes = Vec::new();
+    let subchunk_size = rendering_config.transparency_chunk_size;
+    
+    // Calculate how many subchunks fit in each dimension
+    let subchunks_per_axis = (crate::chunk::CHUNK_SIZE + subchunk_size - 1) / subchunk_size;
+    
+    // Process each NxNxN subregion
+    for sx in 0..subchunks_per_axis {
+        for sy in 0..subchunks_per_axis {
+            for sz in 0..subchunks_per_axis {
+                let mut vertices = Vec::new();
+                let mut indices = Vec::new();
+                let mut normals = Vec::new();
+                let mut colors = Vec::new();
+                
+                // Calculate bounds for this subchunk (don't let it span chunk boundaries)
+                let start_x = sx * subchunk_size;
+                let start_y = sy * subchunk_size;
+                let start_z = sz * subchunk_size;
+                let end_x = ((sx + 1) * subchunk_size).min(crate::chunk::CHUNK_SIZE);
+                let end_y = ((sy + 1) * subchunk_size).min(crate::chunk::CHUNK_SIZE);
+                let end_z = ((sz + 1) * subchunk_size).min(crate::chunk::CHUNK_SIZE);
+                
+                // Calculate subchunk center for vertex adjustment
+                let subchunk_center = Vec3::new(
+                    (start_x + end_x) as f32 / 2.0,
+                    (start_y + end_y) as f32 / 2.0,
+                    (start_z + end_z) as f32 / 2.0,
+                );
+                
+                // Collect all transparent voxels in this subchunk
+                for x in start_x..end_x {
+                    for y in start_y..end_y {
+                        for z in start_z..end_z {
+                            if let Some(voxel) = chunk.get_voxel(x, y, z) {
+                                if let Some(material_name) = chunk.get_material_name(voxel.material_id) {
+                                    let material = material_registry.get(material_name);
+                                    
+                                    // Only include truly transparent materials
+                                    let is_truly_transparent = !material.is_solid() && material.is_transparent() && material_name != "air";
+                                    
+                                    if is_truly_transparent {
+                                        // Use original chunk-relative position for neighbor checking
+                                        let chunk_relative_pos = Vec3::new(x as f32, y as f32, z as f32);
+                                        
+                                        // But adjust vertex positions to be relative to subchunk center
+                                        let vertex_offset = chunk_relative_pos - subchunk_center;
+                                        add_voxel_faces_with_offset(
+                                            &mut vertices,
+                                            &mut indices,
+                                            &mut normals,
+                                            &mut colors,
+                                            chunk_relative_pos, // For neighbor checking 
+                                            vertex_offset,      // For vertex positioning
+                                            voxel,
+                                            chunk,
+                                            world,
+                                            material_registry,
+                                            rendering_config,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Create mesh for this subchunk if it has geometry
+                if !vertices.is_empty() {
+                    let mut mesh = Mesh::new(
+                        bevy::render::render_resource::PrimitiveTopology::TriangleList,
+                        bevy::render::render_asset::RenderAssetUsages::default(),
+                    );
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+                    mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
+                    
+                    // Return the subchunk center for positioning
+                    subchunk_meshes.push((subchunk_center, mesh));
+                }
+            }
+        }
+    }
+    
+    subchunk_meshes
+}
+
+fn generate_chunk_mesh_filtered(chunk: &crate::chunk::ChunkData, world: &VoxelWorld, material_registry: &MaterialRegistry, rendering_config: &RenderingConfig, transparent_only: bool) -> Option<Mesh> {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     let mut normals = Vec::new();
     let mut colors = Vec::new();
+    
+    let mesh_type = if transparent_only { "transparent" } else { "opaque" };
 
     for x in 0..crate::chunk::CHUNK_SIZE {
         for y in 0..crate::chunk::CHUNK_SIZE {
             for z in 0..crate::chunk::CHUNK_SIZE {
                 if let Some(voxel) = chunk.get_voxel(x, y, z) {
                     if let Some(material_name) = chunk.get_material_name(voxel.material_id) {
-                        if !material_registry.get(material_name).is_solid() {
+                        let material = material_registry.get(material_name);
+                        
+                        // Only include truly transparent materials (not solid, like water/glass)
+                        // in transparent mesh. Semi-transparent solids like leaves go in opaque mesh.
+                        // Exclude air from transparent mesh entirely.
+                        let is_truly_transparent = !material.is_solid() && material.is_transparent() && material_name != "air";
+                        
+                        // Skip if material doesn't match the filter
+                        if transparent_only != is_truly_transparent {
+                            continue;
+                        }
+                        
+                        // For opaque mesh, include all solid materials (even if semi-transparent)
+                        if !transparent_only && !material.is_solid() {
                             continue;
                         }
                     } else {
@@ -729,6 +889,12 @@ fn generate_chunk_mesh(chunk: &crate::chunk::ChunkData, world: &VoxelWorld, mate
     if vertices.is_empty() {
         return None;
     }
+
+    let triangle_count = indices.len() / 3;
+    let vertex_count = vertices.len();
+    
+    println!("Chunk {:?} {} mesh: {} triangles, {} vertices", 
+             chunk.coord, mesh_type, triangle_count, vertex_count);
 
     let mut mesh = Mesh::new(
         bevy::render::render_resource::PrimitiveTopology::TriangleList,
@@ -843,31 +1009,39 @@ fn add_voxel_faces(
         let neighbor_pos = pos + normal;
         let neighbor_voxel = get_voxel_with_neighbor_check(chunk, world, neighbor_pos);
 
-        // Check if neighbor is transparent
+        // Get neighbor material info
         let neighbor_material_name = if let Some(neighbor_chunk) = world.get_chunk_at_world_pos(chunk.coord.to_world_pos() + neighbor_pos) {
             neighbor_chunk.get_material_name(neighbor_voxel.material_id).map(|s| s.as_str())
         } else {
             Some("air") // Outside chunks are air
         };
         
-        let is_transparent = if let Some(name) = neighbor_material_name {
-            material_registry.get(name).is_transparent()
+        let neighbor_material = if let Some(name) = neighbor_material_name {
+            material_registry.get(name)
         } else {
-            true
+            material_registry.get("air")
         };
         
-        if is_transparent {
+        // Face culling logic:
+        // - Always render faces adjacent to air
+        // - For opaque materials, only render faces adjacent to transparent materials or air
+        // - For transparent materials, render faces at any material boundary
+        let has_air_neighbor = neighbor_material_name == Some("air");
+        let materials_different = material != neighbor_material;
+        let material_is_opaque = material.is_solid() && !material.is_transparent();
+        let neighbor_truly_transparent = !neighbor_material.is_solid() && neighbor_material.is_transparent() && neighbor_material_name != Some("air");
+        
+        let should_render_face = has_air_neighbor || 
+            (material_is_opaque && neighbor_truly_transparent) ||
+            (!material_is_opaque && materials_different);
+        
+        if should_render_face {
             let base_index = vertices.len() as u32;
 
-            // Toggle between smooth and flat normals
-            const USE_SMOOTH_NORMALS: bool = true;
-
-            // For performance comparison:
-            // RADIUS = 1: Fast, basic smoothing
-            // RADIUS = 2: Higher quality, more expensive (current default)
-            // RADIUS = 3: Maximum quality, very expensive
-
-            let face_normal = if USE_SMOOTH_NORMALS {
+            let face_normal = if rendering_config.use_basic_normals {
+                // Use basic face normals with special handling for transparent horizontal faces
+                calculate_basic_normal(normal, material)
+            } else {
                 // Calculate face center in world coordinates - this ensures adjacent faces
                 // across chunk boundaries sample from the exact same world position
                 let world_voxel_center = chunk.coord.to_world_pos() + pos + Vec3::splat(0.5);
@@ -875,9 +1049,6 @@ fn add_voxel_faces(
                 
                 // Use world coordinates for normal calculation to ensure consistency
                 calculate_smooth_normal(chunk, world, world_face_center, material_registry, rendering_config)
-            } else {
-                // Use flat face normal
-                normal
             };
 
             for vertex in face_vertices {
@@ -888,6 +1059,7 @@ fn add_voxel_faces(
                 colors.push(color_array);
             }
 
+            // Add front-facing triangles
             indices.extend_from_slice(&[
                 base_index,
                 base_index + 1,
@@ -896,6 +1068,260 @@ fn add_voxel_faces(
                 base_index + 2,
                 base_index + 3,
             ]);
+
+            // For transparent-air boundaries and truly transparent boundaries, 
+            // add back-facing triangles with appropriate material color
+            let material_truly_transparent = !material.is_solid() && material.is_transparent();
+            let neighbor_truly_transparent = !neighbor_material.is_solid() && neighbor_material.is_transparent();
+            let has_transparent_air_boundary = material_truly_transparent && has_air_neighbor;
+            
+            if materials_different && (
+                (material_truly_transparent && neighbor_truly_transparent) ||
+                has_transparent_air_boundary
+            ) {
+                let back_base_index = vertices.len() as u32;
+                
+                // Add the same vertices again but with flipped normal and neighbor color
+                for vertex in face_vertices {
+                    let vertex_pos = Vec3::new(pos.x + vertex[0], pos.y + vertex[1], pos.z + vertex[2]);
+                    vertices.push([vertex_pos.x, vertex_pos.y, vertex_pos.z]);
+                    normals.push([-face_normal.x, -face_normal.y, -face_normal.z]);
+                }
+                
+                // Use appropriate color for back faces
+                let back_face_color = if has_transparent_air_boundary {
+                    // For transparent-air boundaries, use the transparent material color on both sides
+                    material.get_varied_color(&mut rng)
+                } else {
+                    // For transparent-transparent boundaries, use the neighbor material color
+                    neighbor_material.get_varied_color(&mut rng)
+                };
+                let back_face_color_array = [
+                    back_face_color.to_srgba().red,
+                    back_face_color.to_srgba().green,
+                    back_face_color.to_srgba().blue,
+                    back_face_color.to_srgba().alpha
+                ];
+                
+                for _ in 0..4 {
+                    colors.push(back_face_color_array);
+                }
+                
+                // Add back-facing triangles (reversed winding order)
+                indices.extend_from_slice(&[
+                    back_base_index,
+                    back_base_index + 2,
+                    back_base_index + 1,
+                    back_base_index,
+                    back_base_index + 3,
+                    back_base_index + 2,
+                ]);
+            }
+        }
+    }
+}
+
+fn add_voxel_faces_with_offset(
+    vertices: &mut Vec<[f32; 3]>,
+    indices: &mut Vec<u32>,
+    normals: &mut Vec<[f32; 3]>,
+    colors: &mut Vec<[f32; 4]>,
+    pos: Vec3,            // Original chunk-relative position for neighbor checking
+    vertex_pos: Vec3,     // Adjusted position for vertex coordinates
+    voxel: Voxel,
+    chunk: &crate::chunk::ChunkData,
+    world: &VoxelWorld,
+    material_registry: &MaterialRegistry,
+    rendering_config: &RenderingConfig,
+) {
+    let material_name = chunk.get_material_name(voxel.material_id).map(|s| s.as_str()).unwrap_or("unknown");
+    let material = material_registry.get(material_name);
+    
+    // Create a deterministic seed based on world position for consistent color variation
+    let world_pos = chunk.coord.to_world_pos() + pos; // Use original pos for color consistency
+    let x = world_pos.x as i32 as u32;
+    let y = world_pos.y as i32 as u32;
+    let z = world_pos.z as i32 as u32;
+    
+    // Use a proper 3D hash function that ensures good distribution across all dimensions
+    let mut seed = x as u64;
+    seed = seed.wrapping_mul(0x9e3779b97f4a7c15_u64); // Golden ratio hash
+    seed ^= (y as u64) << 16;
+    seed = seed.wrapping_mul(0x9e3779b97f4a7c15_u64);
+    seed ^= (z as u64) << 32;
+    seed = seed.wrapping_mul(0xc6a4a7935bd1e995_u64); // Additional mixing
+    seed ^= seed >> 32;
+    
+    let mut rng = StdRng::seed_from_u64(seed);
+    let varied_color = material.get_varied_color(&mut rng);
+    let color_array = [varied_color.to_srgba().red, varied_color.to_srgba().green, varied_color.to_srgba().blue, varied_color.to_srgba().alpha];
+
+    let faces = [
+        // +X face
+        (
+            Vec3::X,
+            [
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0],
+                [1.0, 0.0, 1.0],
+            ],
+        ),
+        // -X face
+        (
+            Vec3::NEG_X,
+            [
+                [0.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0],
+            ],
+        ),
+        // +Y face
+        (
+            Vec3::Y,
+            [
+                [0.0, 1.0, 0.0],
+                [0.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [1.0, 1.0, 0.0],
+            ],
+        ),
+        // -Y face
+        (
+            Vec3::NEG_Y,
+            [
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0],
+            ],
+        ),
+        // +Z face
+        (
+            Vec3::Z,
+            [
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0],
+            ],
+        ),
+        // -Z face
+        (
+            Vec3::NEG_Z,
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 0.0],
+            ],
+        ),
+    ];
+
+    for (normal, face_vertices) in faces {
+        let neighbor_pos = pos + normal; // Use original pos for neighbor checking
+        let neighbor_voxel = get_voxel_with_neighbor_check(chunk, world, neighbor_pos);
+
+        // Get neighbor material info
+        let neighbor_material_name = if let Some(neighbor_chunk) = world.get_chunk_at_world_pos(chunk.coord.to_world_pos() + neighbor_pos) {
+            neighbor_chunk.get_material_name(neighbor_voxel.material_id).map(|s| s.as_str())
+        } else {
+            Some("air") // Outside chunks are air
+        };
+        
+        let neighbor_material = if let Some(name) = neighbor_material_name {
+            material_registry.get(name)
+        } else {
+            material_registry.get("air")
+        };
+        
+        // Face culling logic (same as original)
+        let has_air_neighbor = neighbor_material_name == Some("air");
+        let materials_different = material != neighbor_material;
+        let material_is_opaque = material.is_solid() && !material.is_transparent();
+        let neighbor_truly_transparent = !neighbor_material.is_solid() && neighbor_material.is_transparent() && neighbor_material_name != Some("air");
+        
+        let should_render_face = has_air_neighbor || 
+            (material_is_opaque && neighbor_truly_transparent) ||
+            (!material_is_opaque && materials_different);
+        
+        if should_render_face {
+            let base_index = vertices.len() as u32;
+
+            let face_normal = if rendering_config.use_basic_normals {
+                calculate_basic_normal(normal, material)
+            } else {
+                let world_voxel_center = chunk.coord.to_world_pos() + pos + Vec3::splat(0.5);
+                let world_face_center = world_voxel_center + normal * 0.5;
+                calculate_smooth_normal(chunk, world, world_face_center, material_registry, rendering_config)
+            };
+
+            for vertex in face_vertices {
+                // Use vertex_pos (offset position) for actual vertex coordinates
+                let vertex_pos_final = Vec3::new(vertex_pos.x + vertex[0], vertex_pos.y + vertex[1], vertex_pos.z + vertex[2]);
+
+                vertices.push([vertex_pos_final.x, vertex_pos_final.y, vertex_pos_final.z]);
+                normals.push([face_normal.x, face_normal.y, face_normal.z]);
+                colors.push(color_array);
+            }
+
+            // Add front-facing triangles
+            indices.extend_from_slice(&[
+                base_index,
+                base_index + 1,
+                base_index + 2,
+                base_index,
+                base_index + 2,
+                base_index + 3,
+            ]);
+
+            // For transparent-air boundaries and truly transparent boundaries, 
+            // add back-facing triangles with appropriate material color
+            let material_truly_transparent = !material.is_solid() && material.is_transparent();
+            let neighbor_truly_transparent = !neighbor_material.is_solid() && neighbor_material.is_transparent();
+            let has_transparent_air_boundary = material_truly_transparent && has_air_neighbor;
+            
+            if materials_different && (
+                (material_truly_transparent && neighbor_truly_transparent) ||
+                has_transparent_air_boundary
+            ) {
+                let back_base_index = vertices.len() as u32;
+                
+                // Add the same vertices again but with flipped normal and appropriate color
+                for vertex in face_vertices {
+                    let vertex_pos_final = Vec3::new(vertex_pos.x + vertex[0], vertex_pos.y + vertex[1], vertex_pos.z + vertex[2]);
+                    vertices.push([vertex_pos_final.x, vertex_pos_final.y, vertex_pos_final.z]);
+                    normals.push([-face_normal.x, -face_normal.y, -face_normal.z]);
+                }
+                
+                // Use appropriate color for back faces
+                let back_face_color = if has_transparent_air_boundary {
+                    material.get_varied_color(&mut rng)
+                } else {
+                    neighbor_material.get_varied_color(&mut rng)
+                };
+                let back_face_color_array = [
+                    back_face_color.to_srgba().red,
+                    back_face_color.to_srgba().green,
+                    back_face_color.to_srgba().blue,
+                    back_face_color.to_srgba().alpha
+                ];
+                
+                for _ in 0..4 {
+                    colors.push(back_face_color_array);
+                }
+                
+                // Add back-facing triangles (reversed winding order)
+                indices.extend_from_slice(&[
+                    back_base_index,
+                    back_base_index + 2,
+                    back_base_index + 1,
+                    back_base_index,
+                    back_base_index + 3,
+                    back_base_index + 2,
+                ]);
+            }
         }
     }
 }
@@ -946,6 +1372,21 @@ fn calculate_smooth_normal(
         // If no air cells found, use upward normal
         Vec3::Y
     }
+}
+
+fn calculate_basic_normal(
+    face_normal: Vec3,
+    material: &crate::voxel::Material,
+) -> Vec3 {
+    // For transparent materials on horizontal faces, always use Y-up normal
+    if material.is_transparent() && !material.is_solid() {
+        if face_normal == Vec3::Y || face_normal == Vec3::NEG_Y {
+            return Vec3::Y;
+        }
+    }
+    
+    // For all other cases, use the face normal directly
+    face_normal
 }
 
 /// Get voxel density at a world position - used for consistent sampling across chunk boundaries

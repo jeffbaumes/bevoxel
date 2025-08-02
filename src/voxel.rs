@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use rand::prelude::*;
 use rand_distr::{Distribution, Normal};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Material {
     pub name: String,
     pub color: [f32; 4], // RGBA

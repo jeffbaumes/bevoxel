@@ -57,12 +57,16 @@ impl Default for PlayerPhysicsConfig {
 #[derive(Clone, Debug, Resource)]
 pub struct RenderingConfig {
     pub normal_sampling_radius: i32,  // Radius for smooth normal calculation
+    pub use_basic_normals: bool,      // Use basic face normals instead of smooth normals
+    pub transparency_chunk_size: usize, // Size of transparency sub-chunks for better sorting
 }
 
 impl Default for RenderingConfig {
     fn default() -> Self {
         Self {
             normal_sampling_radius: 2,  // Default radius for smooth normals
+            use_basic_normals: false,   // Default to smooth normals
+            transparency_chunk_size: 16, // Default transparency sub-chunk size
         }
     }
 }
