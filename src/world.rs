@@ -67,8 +67,6 @@ impl Default for RenderingConfig {
     }
 }
 
-pub const RENDER_DISTANCE: i32 = 8;
-pub const UNLOAD_DISTANCE: i32 = 12;
 
 #[derive(Resource)]
 pub struct VoxelWorld {
@@ -175,20 +173,21 @@ impl VoxelWorld {
         }
     }
     
-    pub fn update_player_position(&mut self, player_pos: Vec3) {
+    pub fn update_player_position(&mut self, player_pos: Vec3, config: &crate::config::GameConfig) {
         let new_chunk = ChunkCoord::from_world_pos(player_pos);
         
         if self.player_chunk != Some(new_chunk) {
             self.player_chunk = Some(new_chunk);
-            self.queue_chunks_for_loading(new_chunk);
-            self.unload_distant_chunks(new_chunk);
+            self.queue_chunks_for_loading(new_chunk, config);
+            self.unload_distant_chunks(new_chunk, config);
         }
     }
     
-    fn queue_chunks_for_loading(&mut self, center: ChunkCoord) {
-        for dx in -RENDER_DISTANCE..=RENDER_DISTANCE {
-            for dy in -RENDER_DISTANCE..=RENDER_DISTANCE {
-                for dz in -RENDER_DISTANCE..=RENDER_DISTANCE {
+    fn queue_chunks_for_loading(&mut self, center: ChunkCoord, config: &crate::config::GameConfig) {
+        let render_distance = config.render_distance;
+        for dx in -render_distance..=render_distance {
+            for dy in -render_distance..=render_distance {
+                for dz in -render_distance..=render_distance {
                     let coord = ChunkCoord::new(
                         center.x + dx,
                         center.y + dy,
@@ -196,7 +195,7 @@ impl VoxelWorld {
                     );
                     
                     let distance_sq = dx * dx + dy * dy + dz * dz;
-                    if distance_sq <= RENDER_DISTANCE * RENDER_DISTANCE {
+                    if distance_sq <= render_distance * render_distance {
                         if !self.chunks.contains_key(&coord) 
                             && !self.loading_queue.contains(&coord) {
                             self.loading_queue.push_back(coord);
@@ -207,7 +206,7 @@ impl VoxelWorld {
         }
     }
     
-    fn unload_distant_chunks(&mut self, center: ChunkCoord) {
+    fn unload_distant_chunks(&mut self, center: ChunkCoord, config: &crate::config::GameConfig) {
         let mut chunks_to_unload = Vec::new();
         
         for &coord in self.chunks.keys() {
@@ -216,7 +215,7 @@ impl VoxelWorld {
             let dz = (coord.z - center.z).abs();
             
             let max_distance = dx.max(dy).max(dz);
-            if max_distance > UNLOAD_DISTANCE {
+            if max_distance > config.unload_distance {
                 chunks_to_unload.push(coord);
             }
         }

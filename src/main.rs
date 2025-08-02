@@ -2,12 +2,14 @@ use bevy::prelude::*;
 use noise::{NoiseFn, Perlin};
 
 mod chunk;
+mod config;
 mod player;
 mod systems;
 mod voxel;
 mod world;
 
 use chunk::*;
+use config::*;
 use player::*;
 use systems::*;
 use voxel::{Material as VoxelMaterial, MaterialRegistry};
@@ -28,6 +30,7 @@ fn main() {
         .init_resource::<VoxelEditingConfig>()
         .init_resource::<PlayerPhysicsConfig>()
         .init_resource::<RenderingConfig>()
+        .init_resource::<GameConfig>()
         .add_systems(
             Startup,
             (

@@ -26,8 +26,6 @@ fn apply_movement_with_collision(
     physics_config: &PlayerPhysicsConfig,
     material_registry: &MaterialRegistry,
 ) -> Vec3 {
-    const STEP_SIZE: f32 = 0.1;
-
     let mut new_pos = current_pos;
 
     // Test movement in each axis separately to allow sliding
@@ -410,16 +408,15 @@ pub fn player_movement_system(
 pub fn player_world_update_system(
     player_query: Query<&Transform, (With<Player>, Changed<Transform>)>,
     mut world: ResMut<VoxelWorld>,
+    config: Res<crate::config::GameConfig>,
 ) {
     if let Ok(player_transform) = player_query.get_single() {
-        world.update_player_position(player_transform.translation);
+        world.update_player_position(player_transform.translation, &config);
     }
 }
 
-pub fn chunk_loading_system(mut world: ResMut<VoxelWorld>) {
-    const MAX_CHUNKS_PER_FRAME: usize = 2;
-
-    for _ in 0..MAX_CHUNKS_PER_FRAME {
+pub fn chunk_loading_system(mut world: ResMut<VoxelWorld>, config: Res<crate::config::GameConfig>) {
+    for _ in 0..config.max_chunks_per_frame {
         if let Some(coord) = world.loading_queue.pop_front() {
             world.load_chunk(coord);
         } else {
@@ -436,15 +433,15 @@ pub fn chunk_meshing_system(
     existing_meshes: Query<(Entity, &ChunkMesh)>,
     material_registry: Res<MaterialRegistry>,
     rendering_config: Res<RenderingConfig>,
+    config: Res<crate::config::GameConfig>,
 ) {
-    const MAX_MESHES_PER_FRAME: usize = 16; // Increased for faster updates
 
     let mut existing_mesh_map = std::collections::HashMap::new();
     for (entity, chunk_mesh) in existing_meshes.iter() {
         existing_mesh_map.insert(chunk_mesh.coord, entity);
     }
 
-    for _ in 0..MAX_MESHES_PER_FRAME {
+    for _ in 0..config.max_meshes_per_frame {
         // Try priority queue first (player modifications)
         let coord = if let Some(coord) = world.priority_meshing_queue.pop_front() {
             coord
@@ -525,6 +522,7 @@ pub fn voxel_interaction_system(
     mut editing_config: ResMut<VoxelEditingConfig>,
     mut physics_config: ResMut<PlayerPhysicsConfig>,
     material_registry: Res<MaterialRegistry>,
+    config: Res<crate::config::GameConfig>,
 ) {
     let Ok(camera_transform) = camera_query.get_single() else {
         return;
@@ -583,7 +581,7 @@ pub fn voxel_interaction_system(
         let ray_direction = camera_transform.forward().as_vec3();
 
         if let Some((hit_pos, place_pos)) =
-            cast_voxel_ray(&world, ray_origin, ray_direction, editing_config.reach_distance, &material_registry)
+            cast_voxel_ray(&world, ray_origin, ray_direction, editing_config.reach_distance, &material_registry, &config)
         {
             if mouse.just_pressed(MouseButton::Left) {
                 // Remove voxels in brush area
@@ -1060,8 +1058,9 @@ fn cast_voxel_ray(
     direction: Vec3,
     max_distance: f32,
     material_registry: &MaterialRegistry,
+    config: &crate::config::GameConfig,
 ) -> Option<(Vec3, Vec3)> {
-    let step_size = 0.1;
+    let step_size = config.raycast_step_size;
     let max_steps = (max_distance / step_size) as i32;
 
     for i in 0..max_steps {
