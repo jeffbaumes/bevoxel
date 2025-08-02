@@ -17,7 +17,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Bevox - Next-Gen Voxel Engine".into(),
+                title: "Bevoxel - Next-Gen Voxel Engine".into(),
                 resolution: (1280., 720.).into(),
                 present_mode: bevy::window::PresentMode::AutoVsync,
                 ..default()

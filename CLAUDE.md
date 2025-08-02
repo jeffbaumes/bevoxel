@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Bevox is a high-performance voxel engine built with Rust and Bevy, designed for infinite worlds with rapid terrain modification. The project uses Bevy's Entity Component System (ECS) architecture for performance and maintainability.
+Bevoxel is a high-performance voxel engine built with Rust and Bevy, designed for infinite worlds with rapid terrain modification. The project uses Bevy's Entity Component System (ECS) architecture for performance and maintainability.
 
 ## Build and Development Commands
 

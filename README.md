@@ -1,4 +1,4 @@
-# Bevox - Next-Generation Voxel Engine
+# Bevoxel - Next-Generation Voxel Engine
 
 A high-performance voxel engine built with Rust and Bevy, designed for infinite worlds with rapid terrain modification.
 
@@ -110,7 +110,7 @@ The engine provides a solid foundation for:
 
 ## Architecture Design Goals
 
-Bevox was designed with these principles:
+Bevoxel was designed with these principles:
 - **Performance**: GPU-accelerated operations where possible
 - **Scalability**: Infinite worlds with efficient memory usage  
 - **Modularity**: Clean separation of concerns with Bevy's ECS
