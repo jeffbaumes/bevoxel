@@ -42,6 +42,7 @@ fn main() {
                 setup_material_registry,
                 setup_rendering_config,
                 setup_world,
+                sync_world_chunk_size,
                 setup_player,
                 setup_crosshair,
                 setup_voxel_tint_overlay,
@@ -77,7 +78,6 @@ fn setup_world(mut commands: Commands) {
         Transform::from_xyz(3.0, 1.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
-
 
 fn setup_material_registry(mut commands: Commands) {
     let mut registry = MaterialRegistry::new();
@@ -153,11 +153,21 @@ fn setup_rendering_config(mut commands: Commands) {
     // 8 = good balance, 4 = more entities/better sorting, 16 = fewer entities/worse sorting
     config.transparency_chunk_size = 8;
 
+    // Configure chunk size (32x32x32 default)
+    // 16 = smaller chunks, faster loading but more entities
+    // 32 = balanced (default)
+    // 64 = larger chunks, slower loading but fewer entities
+    config.chunk_size = 16;
+
     // Enable basic normals mode (flat face normals)
     // When enabled, transparent geometry horizontal faces always use Y-up normals
     config.use_basic_normals = true;
 
     commands.insert_resource(config);
+}
+
+fn sync_world_chunk_size(mut world: ResMut<VoxelWorld>, rendering_config: Res<RenderingConfig>) {
+    world.set_chunk_size(rendering_config.chunk_size);
 }
 
 fn setup_inventory(mut commands: Commands) {
@@ -193,17 +203,17 @@ fn world_generation_system(mut world: ResMut<VoxelWorld>) {
 
 fn generate_terrain(chunk: &mut ChunkData) {
     let noise = Perlin::new(42);
-    let chunk_world_pos = chunk.coord.to_world_pos();
+    let chunk_world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size);
 
-    for x in 0..CHUNK_SIZE {
-        for z in 0..CHUNK_SIZE {
+    for x in 0..chunk.chunk_size {
+        for z in 0..chunk.chunk_size {
             let world_x = chunk_world_pos.x + x as f32;
             let world_z = chunk_world_pos.z + z as f32;
 
             let height =
                 (noise.get([world_x as f64 * 0.01, world_z as f64 * 0.01]) * 20.0 + 50.0) as i32;
 
-            for y in 0..CHUNK_SIZE {
+            for y in 0..chunk.chunk_size {
                 let world_y = chunk_world_pos.y as i32 + y as i32;
 
                 let material_name = if world_y > height {

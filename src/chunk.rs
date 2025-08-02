@@ -20,18 +20,28 @@ impl ChunkCoord {
     }
     
     pub fn from_world_pos(world_pos: Vec3) -> Self {
+        Self::from_world_pos_with_size(world_pos, CHUNK_SIZE)
+    }
+    
+    pub fn from_world_pos_with_size(world_pos: Vec3, chunk_size: usize) -> Self {
+        let chunk_size_f32 = chunk_size as f32;
         Self {
-            x: (world_pos.x / CHUNK_SIZE_F32).floor() as i32,
-            y: (world_pos.y / CHUNK_SIZE_F32).floor() as i32,
-            z: (world_pos.z / CHUNK_SIZE_F32).floor() as i32,
+            x: (world_pos.x / chunk_size_f32).floor() as i32,
+            y: (world_pos.y / chunk_size_f32).floor() as i32,
+            z: (world_pos.z / chunk_size_f32).floor() as i32,
         }
     }
     
     pub fn to_world_pos(self) -> Vec3 {
+        self.to_world_pos_with_size(CHUNK_SIZE)
+    }
+    
+    pub fn to_world_pos_with_size(self, chunk_size: usize) -> Vec3 {
+        let chunk_size_f32 = chunk_size as f32;
         Vec3::new(
-            self.x as f32 * CHUNK_SIZE_F32,
-            self.y as f32 * CHUNK_SIZE_F32,
-            self.z as f32 * CHUNK_SIZE_F32,
+            self.x as f32 * chunk_size_f32,
+            self.y as f32 * chunk_size_f32,
+            self.z as f32 * chunk_size_f32,
         )
     }
     
@@ -88,7 +98,8 @@ impl ChunkCoord {
 #[derive(Debug, Clone, Serialize)]
 pub struct ChunkData {
     pub coord: ChunkCoord,
-    pub voxels: Box<[[[Voxel; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>,
+    pub voxels: Vec<Voxel>,
+    pub chunk_size: usize,
     pub modified: bool,
     pub material_palette: Vec<String>, // Maps material_id -> material name
     #[serde(skip)]
@@ -103,7 +114,8 @@ impl<'de> Deserialize<'de> for ChunkData {
         #[derive(Deserialize)]
         struct ChunkDataHelper {
             coord: ChunkCoord,
-            voxels: Box<[[[Voxel; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>,
+            voxels: Vec<Voxel>,
+            chunk_size: usize,
             modified: bool,
             material_palette: Vec<String>,
         }
@@ -112,6 +124,7 @@ impl<'de> Deserialize<'de> for ChunkData {
         let mut chunk_data = ChunkData {
             coord: helper.coord,
             voxels: helper.voxels,
+            chunk_size: helper.chunk_size,
             modified: helper.modified,
             material_palette: helper.material_palette,
             material_lookup: AHashMap::new(),
@@ -124,15 +137,22 @@ impl<'de> Deserialize<'de> for ChunkData {
 
 impl ChunkData {
     pub fn new(coord: ChunkCoord) -> Self {
+        Self::new_with_size(coord, CHUNK_SIZE)
+    }
+    
+    pub fn new_with_size(coord: ChunkCoord, chunk_size: usize) -> Self {
         let mut palette = Vec::new();
         palette.push("air".to_string()); // Air is always at index 0
         
         let mut lookup = AHashMap::new();
         lookup.insert("air".to_string(), 0);
         
+        let volume = chunk_size * chunk_size * chunk_size;
+        
         Self {
             coord,
-            voxels: Box::new([[[Voxel::default(); CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]),
+            voxels: vec![Voxel::default(); volume],
+            chunk_size,
             modified: false,
             material_palette: palette,
             material_lookup: lookup,
@@ -166,32 +186,39 @@ impl ChunkData {
         }
     }
     
+    fn get_index(&self, x: usize, y: usize, z: usize) -> usize {
+        x * self.chunk_size * self.chunk_size + y * self.chunk_size + z
+    }
+    
     pub fn get_voxel(&self, x: usize, y: usize, z: usize) -> Option<Voxel> {
-        if x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE {
+        if x >= self.chunk_size || y >= self.chunk_size || z >= self.chunk_size {
             return None;
         }
-        Some(self.voxels[x][y][z])
+        let index = self.get_index(x, y, z);
+        Some(self.voxels[index])
     }
     
     pub fn set_voxel(&mut self, x: usize, y: usize, z: usize, voxel: Voxel) -> bool {
-        if x >= CHUNK_SIZE || y >= CHUNK_SIZE || z >= CHUNK_SIZE {
+        if x >= self.chunk_size || y >= self.chunk_size || z >= self.chunk_size {
             return false;
         }
-        if self.voxels[x][y][z] != voxel {
-            self.voxels[x][y][z] = voxel;
+        let index = self.get_index(x, y, z);
+        if self.voxels[index] != voxel {
+            self.voxels[index] = voxel;
             self.modified = true;
         }
         true
     }
     
     pub fn get_voxel_world_pos(&self, world_pos: Vec3) -> Option<Voxel> {
-        let chunk_pos = self.coord.to_world_pos();
+        let chunk_pos = self.coord.to_world_pos_with_size(self.chunk_size);
         let local_pos = world_pos - chunk_pos;
+        let chunk_size_f32 = self.chunk_size as f32;
         
         if local_pos.x < 0.0 || local_pos.y < 0.0 || local_pos.z < 0.0 
-            || local_pos.x >= CHUNK_SIZE_F32 
-            || local_pos.y >= CHUNK_SIZE_F32 
-            || local_pos.z >= CHUNK_SIZE_F32 {
+            || local_pos.x >= chunk_size_f32 
+            || local_pos.y >= chunk_size_f32 
+            || local_pos.z >= chunk_size_f32 {
             return None;
         }
         
@@ -203,13 +230,14 @@ impl ChunkData {
     }
     
     pub fn set_voxel_world_pos(&mut self, world_pos: Vec3, voxel: Voxel) -> bool {
-        let chunk_pos = self.coord.to_world_pos();
+        let chunk_pos = self.coord.to_world_pos_with_size(self.chunk_size);
         let local_pos = world_pos - chunk_pos;
+        let chunk_size_f32 = self.chunk_size as f32;
         
         if local_pos.x < 0.0 || local_pos.y < 0.0 || local_pos.z < 0.0 
-            || local_pos.x >= CHUNK_SIZE_F32 
-            || local_pos.y >= CHUNK_SIZE_F32 
-            || local_pos.z >= CHUNK_SIZE_F32 {
+            || local_pos.x >= chunk_size_f32 
+            || local_pos.y >= chunk_size_f32 
+            || local_pos.z >= chunk_size_f32 {
             return false;
         }
         

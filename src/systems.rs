@@ -565,6 +565,7 @@ pub fn player_world_update_system(
 pub fn chunk_loading_system(
     mut world: ResMut<VoxelWorld>, 
     config: Res<crate::config::GameConfig>,
+    rendering_config: Res<RenderingConfig>,
     player_query: Query<&Transform, With<Player>>,
 ) {
     // Get player position for distance-based sorting
@@ -579,8 +580,8 @@ pub fn chunk_loading_system(
     
     // Sort by distance to player (closest first)
     chunks_to_load.sort_by(|a, b| {
-        let dist_a = a.to_world_pos().distance_squared(player_pos);
-        let dist_b = b.to_world_pos().distance_squared(player_pos);
+        let dist_a = a.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
+        let dist_b = b.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
         dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
     });
 
@@ -631,14 +632,14 @@ pub fn chunk_meshing_system(
     
     // Sort by distance to player (closest first)
     priority_chunks.sort_by(|a, b| {
-        let dist_a = a.to_world_pos().distance_squared(player_pos);
-        let dist_b = b.to_world_pos().distance_squared(player_pos);
+        let dist_a = a.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
+        let dist_b = b.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
         dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
     });
     
     regular_chunks.sort_by(|a, b| {
-        let dist_a = a.to_world_pos().distance_squared(player_pos);
-        let dist_b = b.to_world_pos().distance_squared(player_pos);
+        let dist_a = a.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
+        let dist_b = b.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
         dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
     });
 
@@ -663,7 +664,7 @@ pub fn chunk_meshing_system(
         // Calculate how many chunk boundaries the sampling could cross
         // Since chunk size is 32 and we sample in voxel coordinates,
         // we need neighboring chunks if sampling near chunk edges
-        let chunk_size = crate::chunk::CHUNK_SIZE as i32;
+        let chunk_size = rendering_config.chunk_size as i32;
         let required_chunk_radius = if sampling_radius > 0 {
             // For most practical sampling radii (1-10), we only need immediate neighbors
             // But for very large radii, we might need chunks further away
@@ -731,7 +732,7 @@ pub fn chunk_meshing_system(
                 commands.spawn((
                     Mesh3d(mesh_handle),
                     MeshMaterial3d(material_handle),
-                    Transform::from_translation(coord.to_world_pos()),
+                    Transform::from_translation(coord.to_world_pos_with_size(rendering_config.chunk_size)),
                     ChunkMesh::new(coord),
                     OpaqueMesh { coord },
                 ));
@@ -747,7 +748,7 @@ pub fn chunk_meshing_system(
                 });
 
                 // Position each subchunk at its center in world coordinates for better sorting
-                let subchunk_world_center = coord.to_world_pos() + layer_offset;
+                let subchunk_world_center = coord.to_world_pos_with_size(rendering_config.chunk_size) + layer_offset;
                 let layer_translation = subchunk_world_center;
                 commands.spawn((
                     Mesh3d(mesh_handle),
@@ -1032,7 +1033,7 @@ fn apply_ball_brush_with_material(
                     // Get chunk and set voxel by material name
                     if let Some(chunk) = world.get_chunk_at_world_pos_mut(voxel_pos) {
                         let chunk_coord = chunk.coord;
-                        let chunk_world_pos = chunk.coord.to_world_pos();
+                        let chunk_world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size);
                         let local_pos = voxel_pos - chunk_world_pos;
                         let x = local_pos.x as usize;
                         let y = local_pos.y as usize;
@@ -1072,7 +1073,7 @@ fn apply_cube_brush_with_material(
                 // Get chunk and set voxel by material name
                 if let Some(chunk) = world.get_chunk_at_world_pos_mut(voxel_pos) {
                     let chunk_coord = chunk.coord;
-                    let chunk_world_pos = chunk.coord.to_world_pos();
+                    let chunk_world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size);
                     let local_pos = voxel_pos - chunk_world_pos;
                     let x = local_pos.x as usize;
                     let y = local_pos.y as usize;
@@ -1120,7 +1121,7 @@ fn generate_transparent_chunk_meshes_by_layer(
     let subchunk_size = rendering_config.transparency_chunk_size;
 
     // Calculate how many subchunks fit in each dimension
-    let subchunks_per_axis = (crate::chunk::CHUNK_SIZE + subchunk_size - 1) / subchunk_size;
+    let subchunks_per_axis = (chunk.chunk_size + subchunk_size - 1) / subchunk_size;
 
     // Process each NxNxN subregion
     for sx in 0..subchunks_per_axis {
@@ -1135,9 +1136,9 @@ fn generate_transparent_chunk_meshes_by_layer(
                 let start_x = sx * subchunk_size;
                 let start_y = sy * subchunk_size;
                 let start_z = sz * subchunk_size;
-                let end_x = ((sx + 1) * subchunk_size).min(crate::chunk::CHUNK_SIZE);
-                let end_y = ((sy + 1) * subchunk_size).min(crate::chunk::CHUNK_SIZE);
-                let end_z = ((sz + 1) * subchunk_size).min(crate::chunk::CHUNK_SIZE);
+                let end_x = ((sx + 1) * subchunk_size).min(chunk.chunk_size);
+                let end_y = ((sy + 1) * subchunk_size).min(chunk.chunk_size);
+                let end_z = ((sz + 1) * subchunk_size).min(chunk.chunk_size);
 
                 // Calculate subchunk center for vertex adjustment
                 let subchunk_center = Vec3::new(
@@ -1227,9 +1228,9 @@ fn generate_chunk_mesh_filtered(
         "opaque"
     };
 
-    for x in 0..crate::chunk::CHUNK_SIZE {
-        for y in 0..crate::chunk::CHUNK_SIZE {
-            for z in 0..crate::chunk::CHUNK_SIZE {
+    for x in 0..chunk.chunk_size {
+        for y in 0..chunk.chunk_size {
+            for z in 0..chunk.chunk_size {
                 if let Some(voxel) = chunk.get_voxel(x, y, z) {
                     if let Some(material_name) = chunk.get_material_name(voxel.material_id) {
                         let material = material_registry.get(material_name);
@@ -1315,7 +1316,7 @@ fn add_voxel_faces(
     let material = material_registry.get(material_name);
 
     // Create a deterministic seed based on world position for consistent color variation
-    let world_pos = chunk.coord.to_world_pos() + pos;
+    let world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size) + pos;
     let x = world_pos.x as i32 as u32;
     let y = world_pos.y as i32 as u32;
     let z = world_pos.z as i32 as u32;
@@ -1407,7 +1408,7 @@ fn add_voxel_faces(
 
         // Get neighbor material info
         let neighbor_material_name = if let Some(neighbor_chunk) =
-            world.get_chunk_at_world_pos(chunk.coord.to_world_pos() + neighbor_pos)
+            world.get_chunk_at_world_pos(chunk.coord.to_world_pos_with_size(chunk.chunk_size) + neighbor_pos)
         {
             neighbor_chunk
                 .get_material_name(neighbor_voxel.material_id)
@@ -1446,7 +1447,7 @@ fn add_voxel_faces(
             } else {
                 // Calculate face center in world coordinates - this ensures adjacent faces
                 // across chunk boundaries sample from the exact same world position
-                let world_voxel_center = chunk.coord.to_world_pos() + pos + Vec3::splat(0.5);
+                let world_voxel_center = chunk.coord.to_world_pos_with_size(chunk.chunk_size) + pos + Vec3::splat(0.5);
                 let world_face_center = world_voxel_center + normal * 0.5;
 
                 // Use world coordinates for normal calculation to ensure consistency
@@ -1562,7 +1563,7 @@ fn add_voxel_faces_with_offset(
     let material = material_registry.get(material_name);
 
     // Create a deterministic seed based on world position for consistent color variation
-    let world_pos = chunk.coord.to_world_pos() + pos; // Use original pos for color consistency
+    let world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size) + pos; // Use original pos for color consistency
     let x = world_pos.x as i32 as u32;
     let y = world_pos.y as i32 as u32;
     let z = world_pos.z as i32 as u32;
@@ -1654,7 +1655,7 @@ fn add_voxel_faces_with_offset(
 
         // Get neighbor material info
         let neighbor_material_name = if let Some(neighbor_chunk) =
-            world.get_chunk_at_world_pos(chunk.coord.to_world_pos() + neighbor_pos)
+            world.get_chunk_at_world_pos(chunk.coord.to_world_pos_with_size(chunk.chunk_size) + neighbor_pos)
         {
             neighbor_chunk
                 .get_material_name(neighbor_voxel.material_id)
@@ -1687,7 +1688,7 @@ fn add_voxel_faces_with_offset(
             let face_normal = if rendering_config.use_basic_normals {
                 calculate_basic_normal(normal, material)
             } else {
-                let world_voxel_center = chunk.coord.to_world_pos() + pos + Vec3::splat(0.5);
+                let world_voxel_center = chunk.coord.to_world_pos_with_size(chunk.chunk_size) + pos + Vec3::splat(0.5);
                 let world_face_center = world_voxel_center + normal * 0.5;
                 calculate_smooth_normal(
                     chunk,
@@ -1855,7 +1856,7 @@ fn get_world_voxel_density(
 ) -> f32 {
     if let Some(chunk) = world.get_chunk_at_world_pos(world_pos) {
         // Calculate local position within the chunk
-        let chunk_world_pos = chunk.coord.to_world_pos();
+        let chunk_world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size);
         let local_pos = world_pos - chunk_world_pos;
         let x = local_pos.x as i32;
         let y = local_pos.y as i32;
@@ -1863,11 +1864,11 @@ fn get_world_voxel_density(
 
         // Bounds check and get voxel
         if x >= 0
-            && x < crate::chunk::CHUNK_SIZE as i32
+            && x < chunk.chunk_size as i32
             && y >= 0
-            && y < crate::chunk::CHUNK_SIZE as i32
+            && y < chunk.chunk_size as i32
             && z >= 0
-            && z < crate::chunk::CHUNK_SIZE as i32
+            && z < chunk.chunk_size as i32
         {
             if let Some(voxel) = chunk.get_voxel(x as usize, y as usize, z as usize) {
                 if let Some(material_name) = chunk.get_material_name(voxel.material_id) {
@@ -1889,19 +1890,17 @@ fn get_voxel_density(
     local_pos: Vec3,
     material_registry: &MaterialRegistry,
 ) -> f32 {
-    use crate::chunk::CHUNK_SIZE;
-
     let x = local_pos.x as i32;
     let y = local_pos.y as i32;
     let z = local_pos.z as i32;
 
     // If within current chunk bounds, get from current chunk
     if x >= 0
-        && x < CHUNK_SIZE as i32
+        && x < chunk.chunk_size as i32
         && y >= 0
-        && y < CHUNK_SIZE as i32
+        && y < chunk.chunk_size as i32
         && z >= 0
-        && z < CHUNK_SIZE as i32
+        && z < chunk.chunk_size as i32
     {
         if let Some(voxel) = chunk.get_voxel(x as usize, y as usize, z as usize) {
             if let Some(material_name) = chunk.get_material_name(voxel.material_id) {
@@ -1916,10 +1915,10 @@ fn get_voxel_density(
     }
 
     // For cross-chunk sampling, get from world and use the correct chunk's material palette
-    let world_pos = chunk.coord.to_world_pos() + local_pos;
+    let world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size) + local_pos;
     if let Some(neighbor_chunk) = world.get_chunk_at_world_pos(world_pos) {
         // Calculate local position within the neighbor chunk
-        let neighbor_chunk_pos = neighbor_chunk.coord.to_world_pos();
+        let neighbor_chunk_pos = neighbor_chunk.coord.to_world_pos_with_size(neighbor_chunk.chunk_size);
         let neighbor_local_pos = world_pos - neighbor_chunk_pos;
         let nx = neighbor_local_pos.x as i32;
         let ny = neighbor_local_pos.y as i32;
@@ -1927,11 +1926,11 @@ fn get_voxel_density(
 
         // Bounds check and get voxel directly from the neighbor chunk
         if nx >= 0
-            && nx < crate::chunk::CHUNK_SIZE as i32
+            && nx < neighbor_chunk.chunk_size as i32
             && ny >= 0
-            && ny < crate::chunk::CHUNK_SIZE as i32
+            && ny < neighbor_chunk.chunk_size as i32
             && nz >= 0
-            && nz < crate::chunk::CHUNK_SIZE as i32
+            && nz < neighbor_chunk.chunk_size as i32
         {
             if let Some(voxel) = neighbor_chunk.get_voxel(nx as usize, ny as usize, nz as usize) {
                 if let Some(material_name) = neighbor_chunk.get_material_name(voxel.material_id) {
@@ -1960,19 +1959,17 @@ fn get_voxel_with_neighbor_check(
     world: &VoxelWorld,
     local_pos: Vec3,
 ) -> crate::voxel::Voxel {
-    use crate::chunk::CHUNK_SIZE;
-
     let x = local_pos.x as i32;
     let y = local_pos.y as i32;
     let z = local_pos.z as i32;
 
     // If within current chunk bounds, get from current chunk
     if x >= 0
-        && x < CHUNK_SIZE as i32
+        && x < chunk.chunk_size as i32
         && y >= 0
-        && y < CHUNK_SIZE as i32
+        && y < chunk.chunk_size as i32
         && z >= 0
-        && z < CHUNK_SIZE as i32
+        && z < chunk.chunk_size as i32
     {
         return chunk
             .get_voxel(x as usize, y as usize, z as usize)
@@ -1980,7 +1977,7 @@ fn get_voxel_with_neighbor_check(
     }
 
     // Otherwise, convert to world position and get from world
-    let world_pos = chunk.coord.to_world_pos() + local_pos;
+    let world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size) + local_pos;
     world.get_voxel_at_world_pos(world_pos)
 }
 
@@ -2063,7 +2060,7 @@ fn collect_materials_from_ball_brush(
 
                 if distance_squared <= radius_squared {
                     if let Some(chunk) = world.get_chunk_at_world_pos(voxel_pos) {
-                        let chunk_world_pos = chunk.coord.to_world_pos();
+                        let chunk_world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size);
                         let local_pos = voxel_pos - chunk_world_pos;
                         let x = local_pos.x as usize;
                         let y = local_pos.y as usize;
@@ -2100,7 +2097,7 @@ fn collect_materials_from_cube_brush(
                 let voxel_pos = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
                 
                 if let Some(chunk) = world.get_chunk_at_world_pos(voxel_pos) {
-                    let chunk_world_pos = chunk.coord.to_world_pos();
+                    let chunk_world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size);
                     let local_pos = voxel_pos - chunk_world_pos;
                     let x = local_pos.x as usize;
                     let y = local_pos.y as usize;

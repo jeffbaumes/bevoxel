@@ -59,6 +59,7 @@ pub struct RenderingConfig {
     pub normal_sampling_radius: i32,  // Radius for smooth normal calculation
     pub use_basic_normals: bool,      // Use basic face normals instead of smooth normals
     pub transparency_chunk_size: usize, // Size of transparency sub-chunks for better sorting
+    pub chunk_size: usize,            // Size of voxel chunks (32x32x32 default)
 }
 
 impl Default for RenderingConfig {
@@ -67,6 +68,7 @@ impl Default for RenderingConfig {
             normal_sampling_radius: 2,  // Default radius for smooth normals
             use_basic_normals: false,   // Default to smooth normals
             transparency_chunk_size: 16, // Default transparency sub-chunk size
+            chunk_size: 32,             // Default chunk size
         }
     }
 }
@@ -80,6 +82,7 @@ pub struct VoxelWorld {
     pub priority_meshing_queue: VecDeque<ChunkCoord>, // For chunks modified by player
     pub player_chunk: Option<ChunkCoord>,
     pub save_path: String,
+    pub chunk_size: usize,
 }
 
 impl Default for VoxelWorld {
@@ -91,11 +94,16 @@ impl Default for VoxelWorld {
             priority_meshing_queue: VecDeque::new(),
             player_chunk: None,
             save_path: "world".to_string(),
+            chunk_size: crate::chunk::CHUNK_SIZE,
         }
     }
 }
 
 impl VoxelWorld {
+    pub fn set_chunk_size(&mut self, chunk_size: usize) {
+        self.chunk_size = chunk_size;
+    }
+    
     pub fn get_chunk(&self, coord: ChunkCoord) -> Option<&ChunkData> {
         self.chunks.get(&coord)
     }
@@ -105,18 +113,18 @@ impl VoxelWorld {
     }
     
     pub fn get_chunk_at_world_pos(&self, world_pos: Vec3) -> Option<&ChunkData> {
-        let chunk_coord = ChunkCoord::from_world_pos(world_pos);
+        let chunk_coord = ChunkCoord::from_world_pos_with_size(world_pos, self.chunk_size);
         self.get_chunk(chunk_coord)
     }
     
     pub fn get_chunk_at_world_pos_mut(&mut self, world_pos: Vec3) -> Option<&mut ChunkData> {
-        let chunk_coord = ChunkCoord::from_world_pos(world_pos);
+        let chunk_coord = ChunkCoord::from_world_pos_with_size(world_pos, self.chunk_size);
         self.get_chunk_mut(chunk_coord)
     }
     
     pub fn load_chunk(&mut self, coord: ChunkCoord) -> &mut ChunkData {
         if !self.chunks.contains_key(&coord) {
-            let mut chunk = ChunkData::new(coord);
+            let mut chunk = ChunkData::new_with_size(coord, self.chunk_size);
             
             if !self.try_load_chunk_from_disk(&mut chunk) {
                 // Terrain generation will be handled externally
@@ -138,7 +146,7 @@ impl VoxelWorld {
     }
     
     pub fn get_voxel_at_world_pos(&self, world_pos: Vec3) -> Voxel {
-        let chunk_coord = ChunkCoord::from_world_pos(world_pos);
+        let chunk_coord = ChunkCoord::from_world_pos_with_size(world_pos, self.chunk_size);
         
         if let Some(chunk) = self.get_chunk(chunk_coord) {
             chunk.get_voxel_world_pos(world_pos).unwrap_or_default()
@@ -148,7 +156,7 @@ impl VoxelWorld {
     }
     
     pub fn set_voxel_at_world_pos(&mut self, world_pos: Vec3, voxel: Voxel) -> bool {
-        let chunk_coord = ChunkCoord::from_world_pos(world_pos);
+        let chunk_coord = ChunkCoord::from_world_pos_with_size(world_pos, self.chunk_size);
         
         if let Some(chunk) = self.get_chunk_mut(chunk_coord) {
             let result = chunk.set_voxel_world_pos(world_pos, voxel);
@@ -178,7 +186,7 @@ impl VoxelWorld {
     }
     
     pub fn update_player_position(&mut self, player_pos: Vec3, config: &crate::config::GameConfig) {
-        let new_chunk = ChunkCoord::from_world_pos(player_pos);
+        let new_chunk = ChunkCoord::from_world_pos_with_size(player_pos, self.chunk_size);
         
         if self.player_chunk != Some(new_chunk) {
             self.player_chunk = Some(new_chunk);

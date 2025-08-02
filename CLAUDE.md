@@ -100,3 +100,4 @@ The game runs four main systems in Update schedule:
 
 ### Build Recommendations
 - To test that it builds properly, always use `cargo build --release`. The user will actually run the program to test it.
+- Always build with --release
