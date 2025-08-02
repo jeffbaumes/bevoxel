@@ -42,6 +42,21 @@ fn is_voxel_solid_at_pos(
     false
 }
 
+fn get_material_at_position<'a>(
+    world: &VoxelWorld,
+    pos: Vec3,
+    material_registry: &'a MaterialRegistry,
+) -> &'a crate::voxel::Material {
+    let voxel = world.get_voxel_at_world_pos(pos);
+    if let Some(chunk) = world.get_chunk_at_world_pos(pos) {
+        if let Some(material_name) = chunk.get_material_name(voxel.material_id) {
+            return material_registry.get(material_name);
+        }
+    }
+    // Default to air if no chunk or material found
+    material_registry.get("air")
+}
+
 fn apply_movement_with_collision(
     current_pos: Vec3,
     movement: Vec3,
@@ -461,25 +476,46 @@ pub fn player_movement_system(
             horizontal_input += player_transform.right().as_vec3();
         }
 
+        // Get the material the player is currently in (at center of player)
+        let player_center = player_transform.translation + Vec3::new(0.0, physics_config.height * 0.5, 0.0);
+        let current_material = get_material_at_position(&world, player_center, &material_registry);
+
         // Remove Y component for horizontal movement
         horizontal_input.y = 0.0;
         if horizontal_input.length() > 0.0 {
             horizontal_input = horizontal_input.normalize();
         }
 
-        // Apply horizontal velocity
+        // Apply horizontal velocity with fluid resistance
         let horizontal_velocity = horizontal_input * player.speed;
-        player.velocity.x = horizontal_velocity.x;
-        player.velocity.z = horizontal_velocity.z;
-
-        // Jumping
-        if keyboard.just_pressed(KeyCode::Space) && player.is_grounded {
-            player.velocity.y = player.jump_strength;
-            player.is_grounded = false;
+        
+        // If in a fluid, apply some resistance to horizontal movement
+        if current_material.swim_strength > 0.0 {
+            let fluid_resistance = 1.0 - (1.0 - current_material.gravity_modifier) * 0.5;
+            player.velocity.x = horizontal_velocity.x * fluid_resistance;
+            player.velocity.z = horizontal_velocity.z * fluid_resistance;
+        } else {
+            player.velocity.x = horizontal_velocity.x;
+            player.velocity.z = horizontal_velocity.z;
+        }
+        
+        // Jumping and swimming
+        if keyboard.just_pressed(KeyCode::Space) {
+            if player.is_grounded {
+                // Normal ground jump
+                player.velocity.y = player.jump_strength;
+                player.is_grounded = false;
+            } else if current_material.swim_strength > 0.0 {
+                // Swimming in fluid
+                player.velocity.y += player.jump_strength * current_material.swim_strength;
+                // Cap swimming velocity to prevent infinite acceleration
+                player.velocity.y = player.velocity.y.min(player.jump_strength * 0.8);
+            }
         }
 
-        // Apply gravity
-        player.velocity.y += player.gravity * time.delta_secs();
+        // Apply gravity modified by current material
+        let effective_gravity = player.gravity * current_material.gravity_modifier;
+        player.velocity.y += effective_gravity * time.delta_secs();
 
         // Calculate movement with collision
         let mut new_position = player_transform.translation;

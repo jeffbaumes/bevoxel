@@ -132,11 +132,13 @@ fn setup_material_registry(mut commands: Commands) {
         true,
         0.1,
     ));
-    registry.register(VoxelMaterial::new("water", [0.2, 0.4, 0.8, 0.7], false));
-    registry.register(VoxelMaterial::new(
+    registry.register(VoxelMaterial::with_buoyancy("water", [0.2, 0.4, 0.8, 0.7], false, 0.3, 0.6));
+    registry.register(VoxelMaterial::with_buoyancy(
         "murky_water",
         [0.3, 0.5, 0.4, 0.8],
         false,
+        0.1, // More sluggish - stronger gravity effect
+        0.4, // Weaker swimming
     ));
     registry.register(VoxelMaterial::new("glass", [0.9, 0.9, 0.9, 0.3], true));
     registry.register(VoxelMaterial::with_variance(

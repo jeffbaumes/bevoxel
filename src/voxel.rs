@@ -10,6 +10,8 @@ pub struct Material {
     pub color: [f32; 4], // RGBA
     pub solid: bool,
     pub color_variance: f32, // Standard deviation for color variation
+    pub gravity_modifier: f32, // Multiplier for gravity when inside this material (1.0 = normal, 0.0 = no gravity, -1.0 = upward force)
+    pub swim_strength: f32, // Strength of swimming/jumping when inside this material (0.0 = no swimming, 1.0 = normal jump strength)
 }
 
 impl Material {
@@ -19,6 +21,8 @@ impl Material {
             color,
             solid,
             color_variance: 0.0, // No variance by default
+            gravity_modifier: 1.0, // Normal gravity by default
+            swim_strength: 0.0, // No swimming by default
         }
     }
     
@@ -28,6 +32,19 @@ impl Material {
             color,
             solid,
             color_variance: variance,
+            gravity_modifier: 1.0, // Normal gravity by default
+            swim_strength: 0.0, // No swimming by default
+        }
+    }
+    
+    pub fn with_buoyancy(name: impl Into<String>, color: [f32; 4], solid: bool, gravity_modifier: f32, swim_strength: f32) -> Self {
+        Self {
+            name: name.into(),
+            color,
+            solid,
+            color_variance: 0.0,
+            gravity_modifier,
+            swim_strength,
         }
     }
     
