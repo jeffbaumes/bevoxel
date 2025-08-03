@@ -119,9 +119,6 @@ pub fn day_night_cycle_system(
         light_transform.translation = Vec3::new(sun_x, sun_y, sun_z);
         light_transform.look_at(Vec3::ZERO, Vec3::Y);
 
-        // Smooth transitions using continuous functions
-        let sun_factor = (sun_height + 1.0) * 0.5; // Convert -1..1 to 0..1
-        
         // Light intensity - smooth curve from night to day
         let light_intensity = if sun_height > -0.1 {
             // Above horizon or just below - day lighting
@@ -132,14 +129,14 @@ pub fn day_night_cycle_system(
             let moon_factor = ((-sun_height - 0.1) * 2.0).max(0.0).min(1.0);
             moon_factor * 500.0
         };
-        
+
         light.illuminance = light_intensity;
 
         // Smooth color transitions
-        let day_color = Color::srgb(1.0, 0.95, 0.8);     // Warm white
-        let sunset_color = Color::srgb(1.0, 0.7, 0.4);   // Orange
-        let night_color = Color::srgb(0.7, 0.8, 1.0);    // Cool blue
-        
+        let day_color = Color::srgb(1.0, 0.95, 0.8); // Warm white
+        let sunset_color = Color::srgb(1.0, 0.7, 0.4); // Orange
+        let night_color = Color::srgb(0.7, 0.8, 1.0); // Cool blue
+
         light.color = if sun_height > 0.3 {
             // High sun - pure day color
             day_color
@@ -147,17 +144,25 @@ pub fn day_night_cycle_system(
             // Sunset/sunrise transition
             let transition_factor = (sun_height + 0.1) / 0.4; // 0 at horizon, 1 at 0.3 height
             Color::srgb(
-                sunset_color.to_srgba().red + (day_color.to_srgba().red - sunset_color.to_srgba().red) * transition_factor,
-                sunset_color.to_srgba().green + (day_color.to_srgba().green - sunset_color.to_srgba().green) * transition_factor,
-                sunset_color.to_srgba().blue + (day_color.to_srgba().blue - sunset_color.to_srgba().blue) * transition_factor,
+                sunset_color.to_srgba().red
+                    + (day_color.to_srgba().red - sunset_color.to_srgba().red) * transition_factor,
+                sunset_color.to_srgba().green
+                    + (day_color.to_srgba().green - sunset_color.to_srgba().green)
+                        * transition_factor,
+                sunset_color.to_srgba().blue
+                    + (day_color.to_srgba().blue - sunset_color.to_srgba().blue)
+                        * transition_factor,
             )
         } else if sun_height > -0.4 {
             // Night transition - quick fade to night lighting
             let night_factor = ((-sun_height - 0.1) / 0.3).max(0.0).min(1.0); // Faster transition
             Color::srgb(
-                sunset_color.to_srgba().red + (night_color.to_srgba().red - sunset_color.to_srgba().red) * night_factor,
-                sunset_color.to_srgba().green + (night_color.to_srgba().green - sunset_color.to_srgba().green) * night_factor,
-                sunset_color.to_srgba().blue + (night_color.to_srgba().blue - sunset_color.to_srgba().blue) * night_factor,
+                sunset_color.to_srgba().red
+                    + (night_color.to_srgba().red - sunset_color.to_srgba().red) * night_factor,
+                sunset_color.to_srgba().green
+                    + (night_color.to_srgba().green - sunset_color.to_srgba().green) * night_factor,
+                sunset_color.to_srgba().blue
+                    + (night_color.to_srgba().blue - sunset_color.to_srgba().blue) * night_factor,
             )
         } else {
             // Full night - constant moonlight for most of the night
@@ -166,10 +171,10 @@ pub fn day_night_cycle_system(
     }
 
     // Update sky color with smooth transitions
-    let day_sky = Color::srgb(0.5, 0.7, 0.9);        // Blue sky
-    let sunset_sky = Color::srgb(0.8, 0.5, 0.6);     // Orange/pink sunset
-    let night_sky = Color::srgb(0.05, 0.05, 0.1);    // Dark night
-    
+    let day_sky = Color::srgb(0.5, 0.7, 0.9); // Blue sky
+    let sunset_sky = Color::srgb(0.8, 0.5, 0.6); // Orange/pink sunset
+    let night_sky = Color::srgb(0.05, 0.05, 0.1); // Dark night
+
     let sky_color = if sun_height > 0.2 {
         // High sun - pure day sky
         day_sky
@@ -177,17 +182,23 @@ pub fn day_night_cycle_system(
         // Sunset/sunrise transition zone
         let transition_factor = (sun_height + 0.2) / 0.4; // 0 at -0.2, 1 at 0.2
         Color::srgb(
-            sunset_sky.to_srgba().red + (day_sky.to_srgba().red - sunset_sky.to_srgba().red) * transition_factor,
-            sunset_sky.to_srgba().green + (day_sky.to_srgba().green - sunset_sky.to_srgba().green) * transition_factor,
-            sunset_sky.to_srgba().blue + (day_sky.to_srgba().blue - sunset_sky.to_srgba().blue) * transition_factor,
+            sunset_sky.to_srgba().red
+                + (day_sky.to_srgba().red - sunset_sky.to_srgba().red) * transition_factor,
+            sunset_sky.to_srgba().green
+                + (day_sky.to_srgba().green - sunset_sky.to_srgba().green) * transition_factor,
+            sunset_sky.to_srgba().blue
+                + (day_sky.to_srgba().blue - sunset_sky.to_srgba().blue) * transition_factor,
         )
     } else if sun_height > -0.5 {
         // Night transition - quick fade to full darkness
         let night_factor = ((-sun_height - 0.2) / 0.3).max(0.0).min(1.0); // Faster transition over smaller range
         Color::srgb(
-            sunset_sky.to_srgba().red + (night_sky.to_srgba().red - sunset_sky.to_srgba().red) * night_factor,
-            sunset_sky.to_srgba().green + (night_sky.to_srgba().green - sunset_sky.to_srgba().green) * night_factor,
-            sunset_sky.to_srgba().blue + (night_sky.to_srgba().blue - sunset_sky.to_srgba().blue) * night_factor,
+            sunset_sky.to_srgba().red
+                + (night_sky.to_srgba().red - sunset_sky.to_srgba().red) * night_factor,
+            sunset_sky.to_srgba().green
+                + (night_sky.to_srgba().green - sunset_sky.to_srgba().green) * night_factor,
+            sunset_sky.to_srgba().blue
+                + (night_sky.to_srgba().blue - sunset_sky.to_srgba().blue) * night_factor,
         )
     } else {
         // Full night - constant dark color for most of the night

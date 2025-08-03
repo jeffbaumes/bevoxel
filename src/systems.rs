@@ -478,7 +478,8 @@ pub fn player_movement_system(
         }
 
         // Get the material the player is currently in (at center of player)
-        let player_center = player_transform.translation + Vec3::new(0.0, physics_config.height * 0.5, 0.0);
+        let player_center =
+            player_transform.translation + Vec3::new(0.0, physics_config.height * 0.5, 0.0);
         let current_material = get_material_at_position(&world, player_center, &material_registry);
 
         // Remove Y component for horizontal movement
@@ -489,7 +490,7 @@ pub fn player_movement_system(
 
         // Apply horizontal velocity with fluid resistance
         let horizontal_velocity = horizontal_input * player.speed;
-        
+
         // If in a fluid, apply some resistance to horizontal movement
         if current_material.swim_strength > 0.0 {
             let fluid_resistance = 1.0 - (1.0 - current_material.gravity_modifier) * 0.5;
@@ -499,7 +500,7 @@ pub fn player_movement_system(
             player.velocity.x = horizontal_velocity.x;
             player.velocity.z = horizontal_velocity.z;
         }
-        
+
         // Jumping and swimming
         if keyboard.just_pressed(KeyCode::Space) {
             if player.is_grounded {
@@ -563,7 +564,7 @@ pub fn player_world_update_system(
 }
 
 pub fn chunk_loading_system(
-    mut world: ResMut<VoxelWorld>, 
+    mut world: ResMut<VoxelWorld>,
     config: Res<crate::config::GameConfig>,
     rendering_config: Res<RenderingConfig>,
     player_query: Query<&Transform, With<Player>>,
@@ -577,12 +578,18 @@ pub fn chunk_loading_system(
 
     // Convert loading queue to sorted vector based on distance to player
     let mut chunks_to_load: Vec<_> = world.loading_queue.drain(..).collect();
-    
+
     // Sort by distance to player (closest first)
     chunks_to_load.sort_by(|a, b| {
-        let dist_a = a.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
-        let dist_b = b.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
-        dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+        let dist_a = a
+            .to_world_pos_with_size(rendering_config.chunk_size)
+            .distance_squared(player_pos);
+        let dist_b = b
+            .to_world_pos_with_size(rendering_config.chunk_size)
+            .distance_squared(player_pos);
+        dist_a
+            .partial_cmp(&dist_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     // Load closest chunks first (up to max per frame)
@@ -614,9 +621,15 @@ pub fn chunk_meshing_system(
         existing_opaque_map.insert(mesh.coord, entity);
     }
 
-    let mut existing_transparent_map: std::collections::HashMap<crate::chunk::ChunkCoord, Vec<Entity>> = std::collections::HashMap::new();
+    let mut existing_transparent_map: std::collections::HashMap<
+        crate::chunk::ChunkCoord,
+        Vec<Entity>,
+    > = std::collections::HashMap::new();
     for (entity, mesh) in existing_transparent_meshes.iter() {
-        existing_transparent_map.entry(mesh.coord).or_insert_with(Vec::new).push(entity);
+        existing_transparent_map
+            .entry(mesh.coord)
+            .or_insert_with(Vec::new)
+            .push(entity);
     }
 
     // Get player position for distance-based sorting
@@ -629,18 +642,30 @@ pub fn chunk_meshing_system(
     // Convert queues to sorted vectors based on distance to player
     let mut priority_chunks: Vec<_> = world.priority_meshing_queue.drain(..).collect();
     let mut regular_chunks: Vec<_> = world.meshing_queue.drain(..).collect();
-    
+
     // Sort by distance to player (closest first)
     priority_chunks.sort_by(|a, b| {
-        let dist_a = a.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
-        let dist_b = b.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
-        dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+        let dist_a = a
+            .to_world_pos_with_size(rendering_config.chunk_size)
+            .distance_squared(player_pos);
+        let dist_b = b
+            .to_world_pos_with_size(rendering_config.chunk_size)
+            .distance_squared(player_pos);
+        dist_a
+            .partial_cmp(&dist_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
-    
+
     regular_chunks.sort_by(|a, b| {
-        let dist_a = a.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
-        let dist_b = b.to_world_pos_with_size(rendering_config.chunk_size).distance_squared(player_pos);
-        dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+        let dist_a = a
+            .to_world_pos_with_size(rendering_config.chunk_size)
+            .distance_squared(player_pos);
+        let dist_b = b
+            .to_world_pos_with_size(rendering_config.chunk_size)
+            .distance_squared(player_pos);
+        dist_a
+            .partial_cmp(&dist_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     let mut meshes_processed = 0;
@@ -732,7 +757,9 @@ pub fn chunk_meshing_system(
                 commands.spawn((
                     Mesh3d(mesh_handle),
                     MeshMaterial3d(material_handle),
-                    Transform::from_translation(coord.to_world_pos_with_size(rendering_config.chunk_size)),
+                    Transform::from_translation(
+                        coord.to_world_pos_with_size(rendering_config.chunk_size),
+                    ),
                     ChunkMesh::new(coord),
                     OpaqueMesh { coord },
                 ));
@@ -748,7 +775,8 @@ pub fn chunk_meshing_system(
                 });
 
                 // Position each subchunk at its center in world coordinates for better sorting
-                let subchunk_world_center = coord.to_world_pos_with_size(rendering_config.chunk_size) + layer_offset;
+                let subchunk_world_center =
+                    coord.to_world_pos_with_size(rendering_config.chunk_size) + layer_offset;
                 let layer_translation = subchunk_world_center;
                 commands.spawn((
                     Mesh3d(mesh_handle),
@@ -767,10 +795,6 @@ pub fn chunk_meshing_system(
     }
     for coord in regular_chunks {
         world.meshing_queue.push_back(coord);
-    }
-
-    if meshes_processed > 0 {
-        println!("Frame: processed {} chunks for meshing", meshes_processed);
     }
 }
 
@@ -945,7 +969,14 @@ pub fn voxel_interaction_system(
         ) {
             if mouse.just_pressed(MouseButton::Left) {
                 // Remove voxels in brush area and add to inventory
-                apply_brush_with_inventory(&mut world, hit_pos, &editing_config, &mut inventory, &material_registry, true);
+                apply_brush_with_inventory(
+                    &mut world,
+                    hit_pos,
+                    &editing_config,
+                    &mut inventory,
+                    &material_registry,
+                    true,
+                );
             } else if mouse.just_pressed(MouseButton::Right) {
                 // Get material from current inventory selection or fallback to number keys
                 let material_name = {
@@ -971,17 +1002,24 @@ pub fn voxel_interaction_system(
 
                 // Calculate how many voxels will be placed
                 let voxel_count = calculate_brush_voxel_count(&editing_config);
-                
+
                 // Check if we have enough material in inventory
                 if inventory.has_material(&material_name, voxel_count) {
                     // Remove material from inventory and place voxels
                     inventory.remove_material(&material_name, voxel_count);
-                    apply_brush_with_material(&mut world, place_pos, &editing_config, &material_name);
+                    apply_brush_with_material(
+                        &mut world,
+                        place_pos,
+                        &editing_config,
+                        &material_name,
+                    );
                 } else {
-                    println!("Not enough {} in inventory! Have: {}, Need: {}", 
-                        material_name, 
-                        inventory.get_material_count(&material_name), 
-                        voxel_count);
+                    println!(
+                        "Not enough {} in inventory! Have: {}, Need: {}",
+                        material_name,
+                        inventory.get_material_count(&material_name),
+                        voxel_count
+                    );
                 }
             }
         }
@@ -1277,14 +1315,6 @@ fn generate_chunk_mesh_filtered(
         return None;
     }
 
-    let triangle_count = indices.len() / 3;
-    let vertex_count = vertices.len();
-
-    println!(
-        "Chunk {:?} {} mesh: {} triangles, {} vertices",
-        chunk.coord, mesh_type, triangle_count, vertex_count
-    );
-
     let mut mesh = Mesh::new(
         bevy::render::render_resource::PrimitiveTopology::TriangleList,
         bevy::render::render_asset::RenderAssetUsages::default(),
@@ -1407,9 +1437,9 @@ fn add_voxel_faces(
         let neighbor_voxel = get_voxel_with_neighbor_check(chunk, world, neighbor_pos);
 
         // Get neighbor material info
-        let neighbor_material_name = if let Some(neighbor_chunk) =
-            world.get_chunk_at_world_pos(chunk.coord.to_world_pos_with_size(chunk.chunk_size) + neighbor_pos)
-        {
+        let neighbor_material_name = if let Some(neighbor_chunk) = world.get_chunk_at_world_pos(
+            chunk.coord.to_world_pos_with_size(chunk.chunk_size) + neighbor_pos,
+        ) {
             neighbor_chunk
                 .get_material_name(neighbor_voxel.material_id)
                 .map(|s| s.as_str())
@@ -1447,7 +1477,8 @@ fn add_voxel_faces(
             } else {
                 // Calculate face center in world coordinates - this ensures adjacent faces
                 // across chunk boundaries sample from the exact same world position
-                let world_voxel_center = chunk.coord.to_world_pos_with_size(chunk.chunk_size) + pos + Vec3::splat(0.5);
+                let world_voxel_center =
+                    chunk.coord.to_world_pos_with_size(chunk.chunk_size) + pos + Vec3::splat(0.5);
                 let world_face_center = world_voxel_center + normal * 0.5;
 
                 // Use world coordinates for normal calculation to ensure consistency
@@ -1654,9 +1685,9 @@ fn add_voxel_faces_with_offset(
         let neighbor_voxel = get_voxel_with_neighbor_check(chunk, world, neighbor_pos);
 
         // Get neighbor material info
-        let neighbor_material_name = if let Some(neighbor_chunk) =
-            world.get_chunk_at_world_pos(chunk.coord.to_world_pos_with_size(chunk.chunk_size) + neighbor_pos)
-        {
+        let neighbor_material_name = if let Some(neighbor_chunk) = world.get_chunk_at_world_pos(
+            chunk.coord.to_world_pos_with_size(chunk.chunk_size) + neighbor_pos,
+        ) {
             neighbor_chunk
                 .get_material_name(neighbor_voxel.material_id)
                 .map(|s| s.as_str())
@@ -1688,7 +1719,8 @@ fn add_voxel_faces_with_offset(
             let face_normal = if rendering_config.use_basic_normals {
                 calculate_basic_normal(normal, material)
             } else {
-                let world_voxel_center = chunk.coord.to_world_pos_with_size(chunk.chunk_size) + pos + Vec3::splat(0.5);
+                let world_voxel_center =
+                    chunk.coord.to_world_pos_with_size(chunk.chunk_size) + pos + Vec3::splat(0.5);
                 let world_face_center = world_voxel_center + normal * 0.5;
                 calculate_smooth_normal(
                     chunk,
@@ -1918,7 +1950,9 @@ fn get_voxel_density(
     let world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size) + local_pos;
     if let Some(neighbor_chunk) = world.get_chunk_at_world_pos(world_pos) {
         // Calculate local position within the neighbor chunk
-        let neighbor_chunk_pos = neighbor_chunk.coord.to_world_pos_with_size(neighbor_chunk.chunk_size);
+        let neighbor_chunk_pos = neighbor_chunk
+            .coord
+            .to_world_pos_with_size(neighbor_chunk.chunk_size);
         let neighbor_local_pos = world_pos - neighbor_chunk_pos;
         let nx = neighbor_local_pos.x as i32;
         let ny = neighbor_local_pos.y as i32;
@@ -2017,15 +2051,28 @@ fn apply_brush_with_inventory(
     }
 
     // Collect materials before removing them
-    let mut materials_collected: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut materials_collected: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::new();
 
     match config.brush_shape {
         BrushShape::Ball => {
-            collect_materials_from_ball_brush(world, center, config.brush_radius, &mut materials_collected, material_registry);
+            collect_materials_from_ball_brush(
+                world,
+                center,
+                config.brush_radius,
+                &mut materials_collected,
+                material_registry,
+            );
             apply_ball_brush_with_material(world, center, config.brush_radius, "air");
         }
         BrushShape::Cube => {
-            collect_materials_from_cube_brush(world, center, config.brush_radius, &mut materials_collected, material_registry);
+            collect_materials_from_cube_brush(
+                world,
+                center,
+                config.brush_radius,
+                &mut materials_collected,
+                material_registry,
+            );
             apply_cube_brush_with_material(world, center, config.brush_radius, "air");
         }
     }
@@ -2035,7 +2082,10 @@ fn apply_brush_with_inventory(
         if material_name != "air" && count > 0 {
             let added = inventory.add_material(&material_name, count);
             if added < count {
-                println!("Inventory full! Only added {} of {} {}", added, count, material_name);
+                println!(
+                    "Inventory full! Only added {} of {} {}",
+                    added, count, material_name
+                );
             }
         }
     }
@@ -2067,10 +2117,13 @@ fn collect_materials_from_ball_brush(
                         let z = local_pos.z as usize;
 
                         if let Some(voxel) = chunk.get_voxel(x, y, z) {
-                            if let Some(material_name) = chunk.get_material_name(voxel.material_id) {
+                            if let Some(material_name) = chunk.get_material_name(voxel.material_id)
+                            {
                                 let material = material_registry.get(material_name);
                                 if material.is_solid() && material_name != "air" {
-                                    *materials_collected.entry(material_name.to_string()).or_insert(0) += 1;
+                                    *materials_collected
+                                        .entry(material_name.to_string())
+                                        .or_insert(0) += 1;
                                 }
                             }
                         }
@@ -2095,7 +2148,7 @@ fn collect_materials_from_cube_brush(
         for y in (min_bounds.y.floor() as i32)..=(max_bounds.y.ceil() as i32) {
             for z in (min_bounds.z.floor() as i32)..=(max_bounds.z.ceil() as i32) {
                 let voxel_pos = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
-                
+
                 if let Some(chunk) = world.get_chunk_at_world_pos(voxel_pos) {
                     let chunk_world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size);
                     let local_pos = voxel_pos - chunk_world_pos;
@@ -2107,7 +2160,9 @@ fn collect_materials_from_cube_brush(
                         if let Some(material_name) = chunk.get_material_name(voxel.material_id) {
                             let material = material_registry.get(material_name);
                             if material.is_solid() && material_name != "air" {
-                                *materials_collected.entry(material_name.to_string()).or_insert(0) += 1;
+                                *materials_collected
+                                    .entry(material_name.to_string())
+                                    .or_insert(0) += 1;
                             }
                         }
                     }
@@ -2123,14 +2178,14 @@ fn calculate_brush_voxel_count(config: &VoxelEditingConfig) -> u32 {
             let radius_squared = config.brush_radius * config.brush_radius;
             let min_bounds = -config.brush_radius;
             let max_bounds = config.brush_radius;
-            
+
             let mut count = 0;
             for x in (min_bounds.floor() as i32)..=(max_bounds.ceil() as i32) {
                 for y in (min_bounds.floor() as i32)..=(max_bounds.ceil() as i32) {
                     for z in (min_bounds.floor() as i32)..=(max_bounds.ceil() as i32) {
                         let voxel_pos = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
                         let distance_squared = voxel_pos.length_squared();
-                        
+
                         if distance_squared <= radius_squared {
                             count += 1;
                         }
