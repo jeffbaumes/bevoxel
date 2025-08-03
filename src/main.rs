@@ -5,6 +5,7 @@ mod chunk;
 mod config;
 mod inventory;
 mod player;
+mod sky;
 mod systems;
 mod ui;
 mod voxel;
@@ -14,6 +15,7 @@ use chunk::*;
 use config::*;
 use inventory::*;
 use player::*;
+use sky::*;
 use systems::*;
 use ui::*;
 use voxel::{Material as VoxelMaterial, MaterialRegistry};
@@ -36,17 +38,20 @@ fn main() {
         .init_resource::<RenderingConfig>()
         .init_resource::<GameConfig>()
         .init_resource::<VoxelTintState>()
+        .init_resource::<DayNightCycle>()
         .add_systems(
             Startup,
             (
                 setup_material_registry,
                 setup_rendering_config,
                 setup_world,
+                setup_voxel_editing_config,
                 sync_world_chunk_size,
                 setup_player,
                 setup_crosshair,
                 setup_voxel_tint_overlay,
                 setup_inventory,
+                setup_sky_system,
             )
                 .chain(),
         )
@@ -63,20 +68,15 @@ fn main() {
                 update_voxel_tint_overlay,
                 handle_inventory_navigation,
                 update_inventory_ui,
+                day_night_cycle_system,
+                toggle_time_speed_system,
             ),
         )
         .run();
 }
 
 fn setup_world(mut commands: Commands) {
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 1000.0,
-            shadows_enabled: false,
-            ..default()
-        },
-        Transform::from_xyz(3.0, 1.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
+    // The directional light is now handled by the sky system
 }
 
 fn setup_material_registry(mut commands: Commands) {
@@ -135,8 +135,17 @@ fn setup_material_registry(mut commands: Commands) {
         true,
         0.12,
     ));
+    registry.register(VoxelMaterial::new("cloud", [0.9, 0.9, 0.9, 0.3], false));
 
     commands.insert_resource(registry);
+}
+
+fn setup_voxel_editing_config(mut commands: Commands) {
+    let mut config = VoxelEditingConfig::default();
+
+    config.reach_distance = 50.0;
+
+    commands.insert_resource(config);
 }
 
 fn setup_rendering_config(mut commands: Commands) {
@@ -222,6 +231,14 @@ fn generate_terrain(chunk: &mut ChunkData) {
                         "murky_water" // Add water below sea level
                     } else if world_y < 50 {
                         "water"
+                    } else if world_y > 80 && world_y < 120 {
+                        // Cloud layer between height 80-120
+                        let cloud_noise = noise.get([world_x as f64 * 0.05, world_y as f64 * 0.02, world_z as f64 * 0.05]);
+                        if cloud_noise > 0.3 {
+                            "cloud"
+                        } else {
+                            "air"
+                        }
                     } else {
                         "air"
                     }
