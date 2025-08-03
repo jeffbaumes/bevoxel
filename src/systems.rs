@@ -58,6 +58,23 @@ fn get_material_at_position<'a>(
     material_registry.get("air")
 }
 
+fn is_voxel_scoopable_at_pos(
+    world: &VoxelWorld,
+    pos: Vec3,
+    material_registry: &MaterialRegistry,
+) -> bool {
+    let voxel = world.get_voxel_at_world_pos(pos);
+    if let Some(chunk) = world.get_chunk_at_world_pos(pos) {
+        if let Some(material_name) = chunk.get_material_name(voxel.material_id) {
+            let material = material_registry.get(material_name);
+            // Scoopable means solid OR (non-air and transparent)
+            // This allows collecting water, glass, etc. but not air
+            return material.is_solid() || (material_name != "air" && material.is_transparent());
+        }
+    }
+    false
+}
+
 fn apply_movement_with_collision(
     current_pos: Vec3,
     movement: Vec3,
@@ -669,11 +686,11 @@ pub fn chunk_meshing_system(
 
             // Despawn existing meshes for this chunk
             if let Some(existing_entity) = existing_opaque_map.get(&coord) {
-                commands.entity(*existing_entity).despawn();
+                commands.entity(*existing_entity).try_despawn();
             }
             if let Some(existing_entities) = existing_transparent_map.get(&coord) {
                 for &entity in existing_entities {
-                    commands.entity(entity).despawn();
+                    commands.entity(entity).try_despawn();
                 }
             }
 
@@ -886,14 +903,16 @@ pub fn voxel_interaction_system(
     if mouse.just_pressed(MouseButton::Right) || mouse.just_pressed(MouseButton::Left) {
         let ray_origin = camera_transform.translation();
         let ray_direction = camera_transform.forward().as_vec3();
+        let scoop_mode = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
-        if let Some((hit_pos, place_pos)) = cast_voxel_ray(
+        if let Some((hit_pos, place_pos)) = cast_voxel_ray_with_mode(
             &world,
             ray_origin,
             ray_direction,
             editing_config.reach_distance,
             &material_registry,
             &config,
+            scoop_mode,
         ) {
             if mouse.just_pressed(MouseButton::Left) {
                 // Remove voxels in brush area and add to inventory
@@ -904,6 +923,7 @@ pub fn voxel_interaction_system(
                     &mut inventory,
                     &material_registry,
                     true,
+                    scoop_mode,
                 );
             } else if mouse.just_pressed(MouseButton::Right) {
                 // Get material from current inventory selection or fallback to number keys
@@ -935,11 +955,12 @@ pub fn voxel_interaction_system(
                 if inventory.has_material(&material_name, voxel_count) {
                     // Remove material from inventory and place voxels
                     inventory.remove_material(&material_name, voxel_count);
-                    apply_brush_with_material(
+                    apply_brush_with_material_and_mode(
                         &mut world,
                         place_pos,
                         &editing_config,
                         &material_name,
+                        scoop_mode,
                     );
                 } else {
                     println!(
@@ -966,12 +987,22 @@ fn apply_brush_with_material(
     config: &VoxelEditingConfig,
     material_name: &str,
 ) {
+    apply_brush_with_material_and_mode(world, center, config, material_name, false)
+}
+
+fn apply_brush_with_material_and_mode(
+    world: &mut VoxelWorld,
+    center: Vec3,
+    config: &VoxelEditingConfig,
+    material_name: &str,
+    dump_mode: bool,
+) {
     match config.brush_shape {
         BrushShape::Ball => {
-            apply_ball_brush_with_material(world, center, config.brush_radius, material_name)
+            apply_ball_brush_with_material_and_mode(world, center, config.brush_radius, material_name, dump_mode)
         }
         BrushShape::Cube => {
-            apply_cube_brush_with_material(world, center, config.brush_radius, material_name)
+            apply_cube_brush_with_material_and_mode(world, center, config.brush_radius, material_name, dump_mode)
         }
     }
 }
@@ -981,6 +1012,16 @@ fn apply_ball_brush_with_material(
     center: Vec3,
     radius: f32,
     material_name: &str,
+) {
+    apply_ball_brush_with_material_and_mode(world, center, radius, material_name, false)
+}
+
+fn apply_ball_brush_with_material_and_mode(
+    world: &mut VoxelWorld,
+    center: Vec3,
+    radius: f32,
+    material_name: &str,
+    dump_mode: bool,
 ) {
     let radius_squared = radius * radius;
     let min_bounds = center - Vec3::splat(radius);
@@ -1005,7 +1046,28 @@ fn apply_ball_brush_with_material(
                         let y = local_pos.y as usize;
                         let z = local_pos.z as usize;
 
-                        if chunk.set_voxel_by_material(x, y, z, material_name) {
+                        // Check if we can place in this voxel based on mode
+                        let should_place = if dump_mode {
+                            // In dump mode, check if current voxel can be replaced
+                            if let Some(current_voxel) = chunk.get_voxel(x, y, z) {
+                                if let Some(current_material_name) = chunk.get_material_name(current_voxel.material_id) {
+                                    // Can place if current voxel is air, water, or glass (transparent materials)
+                                    current_material_name == "air" || 
+                                    current_material_name == "water" || 
+                                    current_material_name == "murky_water" ||
+                                    current_material_name == "glass"
+                                } else {
+                                    true // If no material found, assume we can place
+                                }
+                            } else {
+                                true // If no voxel found, assume we can place
+                            }
+                        } else {
+                            // Normal mode - only place in air (default behavior of set_voxel_by_material)
+                            true
+                        };
+
+                        if should_place && chunk.set_voxel_by_material(x, y, z, material_name) {
                             modified_chunks.insert(chunk_coord);
                         }
                     }
@@ -1026,6 +1088,16 @@ fn apply_cube_brush_with_material(
     radius: f32,
     material_name: &str,
 ) {
+    apply_cube_brush_with_material_and_mode(world, center, radius, material_name, false)
+}
+
+fn apply_cube_brush_with_material_and_mode(
+    world: &mut VoxelWorld,
+    center: Vec3,
+    radius: f32,
+    material_name: &str,
+    dump_mode: bool,
+) {
     let min_bounds = center - Vec3::splat(radius);
     let max_bounds = center + Vec3::splat(radius);
 
@@ -1045,7 +1117,28 @@ fn apply_cube_brush_with_material(
                     let y = local_pos.y as usize;
                     let z = local_pos.z as usize;
 
-                    if chunk.set_voxel_by_material(x, y, z, material_name) {
+                    // Check if we can place in this voxel based on mode
+                    let should_place = if dump_mode {
+                        // In dump mode, check if current voxel can be replaced
+                        if let Some(current_voxel) = chunk.get_voxel(x, y, z) {
+                            if let Some(current_material_name) = chunk.get_material_name(current_voxel.material_id) {
+                                // Can place if current voxel is air, water, or glass (transparent materials)
+                                current_material_name == "air" || 
+                                current_material_name == "water" || 
+                                current_material_name == "murky_water" ||
+                                current_material_name == "glass"
+                            } else {
+                                true // If no material found, assume we can place
+                            }
+                        } else {
+                            true // If no voxel found, assume we can place
+                        }
+                    } else {
+                        // Normal mode - only place in air (default behavior of set_voxel_by_material)
+                        true
+                    };
+
+                    if should_place && chunk.set_voxel_by_material(x, y, z, material_name) {
                         modified_chunks.insert(chunk_coord);
                     }
                 }
@@ -1951,13 +2044,33 @@ fn cast_voxel_ray(
     material_registry: &MaterialRegistry,
     config: &crate::config::GameConfig,
 ) -> Option<(Vec3, Vec3)> {
+    cast_voxel_ray_with_mode(world, origin, direction, max_distance, material_registry, config, false)
+}
+
+fn cast_voxel_ray_with_mode(
+    world: &VoxelWorld,
+    origin: Vec3,
+    direction: Vec3,
+    max_distance: f32,
+    material_registry: &MaterialRegistry,
+    config: &crate::config::GameConfig,
+    scoop_mode: bool,
+) -> Option<(Vec3, Vec3)> {
     let step_size = config.raycast_step_size;
     let max_steps = (max_distance / step_size) as i32;
 
     for i in 0..max_steps {
         let current_pos = origin + direction * (i as f32 * step_size);
 
-        if is_voxel_solid_at_pos(world, current_pos, material_registry) {
+        let hit = if scoop_mode {
+            // In scoop mode, treat transparent non-air voxels as solid
+            is_voxel_scoopable_at_pos(world, current_pos, material_registry)
+        } else {
+            // Normal mode only hits solid voxels
+            is_voxel_solid_at_pos(world, current_pos, material_registry)
+        };
+
+        if hit {
             let previous_pos = origin + direction * ((i - 1) as f32 * step_size);
             return Some((current_pos, previous_pos));
         }
@@ -1973,6 +2086,7 @@ fn apply_brush_with_inventory(
     inventory: &mut Inventory,
     material_registry: &MaterialRegistry,
     remove: bool,
+    scoop_mode: bool,
 ) {
     if !remove {
         return;
@@ -1990,6 +2104,7 @@ fn apply_brush_with_inventory(
                 config.brush_radius,
                 &mut materials_collected,
                 material_registry,
+                scoop_mode,
             );
             apply_ball_brush_with_material(world, center, config.brush_radius, "air");
         }
@@ -2000,6 +2115,7 @@ fn apply_brush_with_inventory(
                 config.brush_radius,
                 &mut materials_collected,
                 material_registry,
+                scoop_mode,
             );
             apply_cube_brush_with_material(world, center, config.brush_radius, "air");
         }
@@ -2025,6 +2141,7 @@ fn collect_materials_from_ball_brush(
     radius: f32,
     materials_collected: &mut std::collections::HashMap<String, u32>,
     material_registry: &MaterialRegistry,
+    scoop_mode: bool,
 ) {
     let radius_squared = radius * radius;
     let min_bounds = center - Vec3::splat(radius);
@@ -2048,7 +2165,15 @@ fn collect_materials_from_ball_brush(
                             if let Some(material_name) = chunk.get_material_name(voxel.material_id)
                             {
                                 let material = material_registry.get(material_name);
-                                if material.is_solid() && material_name != "air" {
+                                let should_collect = if scoop_mode {
+                                    // In scoop mode, collect solid materials OR transparent non-air materials
+                                    material.is_solid() || (material_name != "air" && material.is_transparent())
+                                } else {
+                                    // Normal mode only collects solid materials
+                                    material.is_solid()
+                                };
+                                
+                                if should_collect && material_name != "air" {
                                     *materials_collected
                                         .entry(material_name.to_string())
                                         .or_insert(0) += 1;
@@ -2068,6 +2193,7 @@ fn collect_materials_from_cube_brush(
     radius: f32,
     materials_collected: &mut std::collections::HashMap<String, u32>,
     material_registry: &MaterialRegistry,
+    scoop_mode: bool,
 ) {
     let min_bounds = center - Vec3::splat(radius);
     let max_bounds = center + Vec3::splat(radius);
@@ -2087,7 +2213,15 @@ fn collect_materials_from_cube_brush(
                     if let Some(voxel) = chunk.get_voxel(x, y, z) {
                         if let Some(material_name) = chunk.get_material_name(voxel.material_id) {
                             let material = material_registry.get(material_name);
-                            if material.is_solid() && material_name != "air" {
+                            let should_collect = if scoop_mode {
+                                // In scoop mode, collect solid materials OR transparent non-air materials
+                                material.is_solid() || (material_name != "air" && material.is_transparent())
+                            } else {
+                                // Normal mode only collects solid materials
+                                material.is_solid()
+                            };
+                            
+                            if should_collect && material_name != "air" {
                                 *materials_collected
                                     .entry(material_name.to_string())
                                     .or_insert(0) += 1;
