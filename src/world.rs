@@ -80,6 +80,7 @@ pub struct VoxelWorld {
     pub loading_queue: VecDeque<ChunkCoord>,
     pub meshing_queue: VecDeque<ChunkCoord>,
     pub priority_meshing_queue: VecDeque<ChunkCoord>, // For chunks modified by player
+    pub simulation_queue: VecDeque<ChunkCoord>, // For chunks that need simulation processing
     pub player_chunk: Option<ChunkCoord>,
     pub save_path: String,
     pub chunk_size: usize,
@@ -92,6 +93,7 @@ impl Default for VoxelWorld {
             loading_queue: VecDeque::new(),
             meshing_queue: VecDeque::new(),
             priority_meshing_queue: VecDeque::new(),
+            simulation_queue: VecDeque::new(),
             player_chunk: None,
             save_path: "world".to_string(),
             chunk_size: crate::chunk::CHUNK_SIZE,

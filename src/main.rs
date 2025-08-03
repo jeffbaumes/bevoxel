@@ -5,6 +5,7 @@ mod chunk;
 mod config;
 mod inventory;
 mod player;
+mod simulation;
 mod sky;
 mod systems;
 mod ui;
@@ -15,10 +16,11 @@ use chunk::*;
 use config::*;
 use inventory::*;
 use player::*;
+use simulation::*;
 use sky::*;
 use systems::*;
 use ui::*;
-use voxel::{Material as VoxelMaterial, MaterialRegistry};
+use voxel::{Material as VoxelMaterial, MaterialRegistry, Voxel};
 use world::*;
 
 fn main() {
@@ -39,6 +41,9 @@ fn main() {
         .init_resource::<GameConfig>()
         .init_resource::<VoxelTintState>()
         .init_resource::<DayNightCycle>()
+        .init_resource::<SimulationConfig>()
+        .init_resource::<SimulationTimer>()
+        .init_resource::<SimulationCallbacks>()
         .add_systems(
             Startup,
             (
@@ -52,6 +57,9 @@ fn main() {
                 setup_voxel_tint_overlay,
                 setup_inventory,
                 setup_sky_system,
+                setup_simulation_config,
+                setup_simulation,
+                setup_simulation_timer,
             )
                 .chain(),
         )
@@ -70,12 +78,14 @@ fn main() {
                 update_inventory_ui,
                 day_night_cycle_system,
                 toggle_time_speed_system,
+                simulation_timer_system,
+                chunk_simulation_system,
             ),
         )
         .run();
 }
 
-fn setup_world(mut commands: Commands) {
+fn setup_world(_commands: Commands) {
     // The directional light is now handled by the sky system
 }
 
@@ -187,6 +197,17 @@ fn setup_inventory(mut commands: Commands) {
     commands.insert_resource(inventory);
 }
 
+fn setup_simulation_config(mut commands: Commands) {
+    let mut config = SimulationConfig::default();
+    config.voxel_fraction_per_step = 0.1;
+    config.step_interval = 1.0;
+    commands.insert_resource(config);
+}
+
+fn setup_simulation(mut callbacks: ResMut<SimulationCallbacks>) {
+    callbacks.add_callback(water_cycle_simulation);
+}
+
 fn world_generation_system(mut world: ResMut<VoxelWorld>) {
     // Check if there are any chunks that need terrain generation
     let chunks_to_generate: Vec<ChunkCoord> = world
@@ -210,6 +231,115 @@ fn world_generation_system(mut world: ResMut<VoxelWorld>) {
     }
 }
 
+fn water_cycle_simulation(
+    world: &mut VoxelWorld,
+    _registry: &MaterialRegistry,
+    world_pos: Vec3,
+) -> bool {
+    // const CLOUD_MIN_ALTITUDE: f32 = 60.0;
+    const CLOUD_MAX_ALTITUDE: f32 = 55.0;
+    // const EVAPORATION_ALTITUDE: f32 = 50.0;
+
+    let current_voxel = world.get_voxel_at_world_pos(world_pos);
+
+    // Get material name from voxel using the chunk's material palette
+    let chunk_coord = ChunkCoord::from_world_pos_with_size(world_pos, world.chunk_size);
+    let current_material = if let Some(chunk) = world.get_chunk(chunk_coord) {
+        chunk.get_material_name(current_voxel.material_id).cloned()
+    } else {
+        None
+    };
+
+    if let Some(current_material) = current_material {
+        match current_material.as_str() {
+            "water" => {
+                // Water evaporation: water above EVAPORATION_ALTITUDE turns into cloud
+                // if world_pos.y > EVAPORATION_ALTITUDE {
+                let chunk_coord = ChunkCoord::from_world_pos_with_size(world_pos, world.chunk_size);
+                if let Some(chunk) = world.get_chunk_mut(chunk_coord) {
+                    let cloud_id = chunk.get_material_id("cloud");
+                    let _ = chunk; // Release borrow before calling set_voxel_at_world_pos
+                    world.set_voxel_at_world_pos(world_pos, Voxel::new(cloud_id));
+                    return true;
+                }
+                // }
+
+                // Water falling: if air or cloud is below, swap down
+                let below_pos = world_pos + Vec3::new(0.0, -1.0, 0.0);
+                let below_voxel = world.get_voxel_at_world_pos(below_pos);
+                let below_chunk_coord =
+                    ChunkCoord::from_world_pos_with_size(below_pos, world.chunk_size);
+                let below_material = if let Some(chunk) = world.get_chunk(below_chunk_coord) {
+                    chunk.get_material_name(below_voxel.material_id).cloned()
+                } else {
+                    None
+                };
+
+                if let Some(below_material) = below_material {
+                    if below_material == "air" || below_material == "cloud" {
+                        // Swap water down
+                        world.set_voxel_at_world_pos(world_pos, below_voxel);
+                        world.set_voxel_at_world_pos(below_pos, current_voxel);
+                        return true;
+                    }
+                }
+            }
+
+            "cloud" => {
+                // Cloud rising: if under CLOUD_MAX_ALTITUDE and air or water is above, move up
+                if world_pos.y < CLOUD_MAX_ALTITUDE {
+                    let above_pos = world_pos + Vec3::new(0.0, 1.0, 0.0);
+                    let above_voxel = world.get_voxel_at_world_pos(above_pos);
+                    let above_chunk_coord =
+                        ChunkCoord::from_world_pos_with_size(above_pos, world.chunk_size);
+                    let above_material = if let Some(chunk) = world.get_chunk(above_chunk_coord) {
+                        chunk.get_material_name(above_voxel.material_id).cloned()
+                    } else {
+                        None
+                    };
+
+                    if let Some(above_material) = above_material {
+                        if above_material == "air" || above_material == "water" {
+                            // Swap cloud up
+                            world.set_voxel_at_world_pos(world_pos, above_voxel);
+                            world.set_voxel_at_world_pos(above_pos, current_voxel);
+                            return true;
+                        }
+                    }
+                }
+
+                // Cloud condensation: if at or above CLOUD_MAX_ALTITUDE, turn into water
+                if world_pos.y >= CLOUD_MAX_ALTITUDE {
+                    let chunk_coord =
+                        ChunkCoord::from_world_pos_with_size(world_pos, world.chunk_size);
+                    if let Some(chunk) = world.get_chunk_mut(chunk_coord) {
+                        let water_id = chunk.get_material_id("water");
+                        let _ = chunk; // Release borrow before calling set_voxel_at_world_pos
+                        world.set_voxel_at_world_pos(world_pos, Voxel::new(water_id));
+                        return true;
+                    }
+                }
+
+                // Cloud condensation below minimum altitude
+                // if world_pos.y < CLOUD_MIN_ALTITUDE {
+                //     let chunk_coord =
+                //         ChunkCoord::from_world_pos_with_size(world_pos, world.chunk_size);
+                //     if let Some(chunk) = world.get_chunk_mut(chunk_coord) {
+                //         let water_id = chunk.get_material_id("water");
+                //         drop(chunk); // Release borrow before calling set_voxel_at_world_pos
+                //         world.set_voxel_at_world_pos(world_pos, Voxel::new(water_id));
+                //         return true;
+                //     }
+                // }
+            }
+
+            _ => {}
+        }
+    }
+
+    false
+}
+
 fn generate_terrain(chunk: &mut ChunkData) {
     let noise = Perlin::new(42);
     let chunk_world_pos = chunk.coord.to_world_pos_with_size(chunk.chunk_size);
@@ -231,14 +361,18 @@ fn generate_terrain(chunk: &mut ChunkData) {
                         "murky_water" // Add water below sea level
                     } else if world_y < 50 {
                         "water"
-                    } else if world_y > 80 && world_y < 120 {
-                        // Cloud layer between height 80-120
-                        let cloud_noise = noise.get([world_x as f64 * 0.05, world_y as f64 * 0.02, world_z as f64 * 0.05]);
-                        if cloud_noise > 0.3 {
-                            "cloud"
-                        } else {
-                            "air"
-                        }
+                    // } else if world_y > 80 && world_y < 120 {
+                    //     // Cloud layer between height 80-120
+                    //     let cloud_noise = noise.get([
+                    //         world_x as f64 * 0.05,
+                    //         world_y as f64 * 0.02,
+                    //         world_z as f64 * 0.05,
+                    //     ]);
+                    //     if cloud_noise > 0.3 {
+                    //         "cloud"
+                    //     } else {
+                    //         "air"
+                    //     }
                     } else {
                         "air"
                     }

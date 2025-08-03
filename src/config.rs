@@ -6,6 +6,7 @@ pub struct GameConfig {
     pub unload_distance: i32,
     pub max_chunks_per_frame: usize,
     pub max_meshes_per_frame: usize,
+    pub max_chunks_simulated_per_frame: usize,
     pub raycast_step_size: f32,
 }
 
@@ -16,6 +17,7 @@ impl Default for GameConfig {
             unload_distance: 12,
             max_chunks_per_frame: 2,
             max_meshes_per_frame: 16,
+            max_chunks_simulated_per_frame: 3,
             raycast_step_size: 0.1,
         }
     }

@@ -611,7 +611,6 @@ pub fn chunk_meshing_system(
     mut world: ResMut<VoxelWorld>,
     existing_opaque_meshes: Query<(Entity, &OpaqueMesh)>,
     existing_transparent_meshes: Query<(Entity, &TransparentMesh)>,
-    player_query: Query<&Transform, With<Player>>,
     material_registry: Res<MaterialRegistry>,
     rendering_config: Res<RenderingConfig>,
     config: Res<crate::config::GameConfig>,
@@ -632,101 +631,33 @@ pub fn chunk_meshing_system(
             .push(entity);
     }
 
-    // Get player position for distance-based sorting
-    let player_pos = if let Ok(player_transform) = player_query.get_single() {
-        player_transform.translation
-    } else {
-        Vec3::ZERO // Fallback if no player found
-    };
+    // Simple FIFO approach - combine both queues and process in order
+    let mut all_chunks: Vec<_> = world.meshing_queue.drain(..).collect();
+    all_chunks.extend(world.priority_meshing_queue.drain(..));
 
-    // Convert queues to sorted vectors based on distance to player
-    let mut priority_chunks: Vec<_> = world.priority_meshing_queue.drain(..).collect();
-    let mut regular_chunks: Vec<_> = world.meshing_queue.drain(..).collect();
-
-    // Sort by distance to player (closest first)
-    priority_chunks.sort_by(|a, b| {
-        let dist_a = a
-            .to_world_pos_with_size(rendering_config.chunk_size)
-            .distance_squared(player_pos);
-        let dist_b = b
-            .to_world_pos_with_size(rendering_config.chunk_size)
-            .distance_squared(player_pos);
-        dist_a
-            .partial_cmp(&dist_b)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    regular_chunks.sort_by(|a, b| {
-        let dist_a = a
-            .to_world_pos_with_size(rendering_config.chunk_size)
-            .distance_squared(player_pos);
-        let dist_b = b
-            .to_world_pos_with_size(rendering_config.chunk_size)
-            .distance_squared(player_pos);
-        dist_a
-            .partial_cmp(&dist_b)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let mut meshes_processed = 0;
+    
     for _ in 0..config.max_meshes_per_frame {
-        // Try priority chunks first (closest player modifications), then regular chunks (closest first)
-        let coord = if !priority_chunks.is_empty() {
-            meshes_processed += 1;
-            priority_chunks.remove(0)
-        } else if !regular_chunks.is_empty() {
-            meshes_processed += 1;
-            regular_chunks.remove(0)
+        // Simple FIFO processing
+        let coord = if !all_chunks.is_empty() {
+            all_chunks.remove(0)
         } else {
             break;
         };
 
-        // Check if all required neighbors are loaded before meshing
-        // We need to ensure that all chunks within sampling range are loaded
-        // since normal calculation may sample from neighboring chunks
-        let sampling_radius = rendering_config.normal_sampling_radius;
-
-        // Calculate how many chunk boundaries the sampling could cross
-        // Since chunk size is 32 and we sample in voxel coordinates,
-        // we need neighboring chunks if sampling near chunk edges
-        let chunk_size = rendering_config.chunk_size as i32;
-        let required_chunk_radius = if sampling_radius > 0 {
-            // For most practical sampling radii (1-10), we only need immediate neighbors
-            // But for very large radii, we might need chunks further away
-            ((sampling_radius as f32 / chunk_size as f32).ceil() as i32).max(1)
-        } else {
-            0
-        };
-
-        let neighbors_loaded = if required_chunk_radius == 0 {
-            // If no sampling, only check face neighbors for basic face culling
-            coord
-                .neighbors()
-                .iter()
-                .all(|&neighbor| world.get_chunk(neighbor).is_some())
-        } else if required_chunk_radius == 1 {
-            // For normal sampling radii, check all 26 surrounding chunks
-            // This ensures normal calculation won't hit missing chunk data
-            // when sampling in any direction from voxels near chunk boundaries
-            coord
-                .all_neighbors()
-                .iter()
-                .all(|&neighbor| world.get_chunk(neighbor).is_some())
-        } else {
-            // For very large sampling radii, check all chunks within the required radius
-            coord
-                .neighbors_within_radius(required_chunk_radius)
-                .iter()
-                .all(|&neighbor| world.get_chunk(neighbor).is_some())
-        };
+        // Require all 26 neighbors for proper normal sampling
+        let neighbors_loaded = coord
+            .all_neighbors()
+            .iter()
+            .all(|&neighbor| world.get_chunk(neighbor).is_some());
 
         if !neighbors_loaded {
             // Put chunk back for later processing if neighbors aren't ready
-            regular_chunks.push(coord);
+            all_chunks.push(coord); // Put back at end of queue
             continue;
         }
 
         if let Some(chunk) = world.get_chunk(coord) {
+            
             let opaque_mesh =
                 generate_chunk_mesh(chunk, &world, &material_registry, &rendering_config);
             let transparent_meshes = generate_transparent_chunk_meshes_by_layer(
@@ -789,11 +720,8 @@ pub fn chunk_meshing_system(
         }
     }
 
-    // Put any remaining chunks back into the queues for next frame
-    for coord in priority_chunks {
-        world.priority_meshing_queue.push_back(coord);
-    }
-    for coord in regular_chunks {
+    // Put any remaining chunks back into the regular queue for next frame
+    for coord in all_chunks {
         world.meshing_queue.push_back(coord);
     }
 }
